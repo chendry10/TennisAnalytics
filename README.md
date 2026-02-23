@@ -5,7 +5,9 @@ A polished Streamlit dashboard and CLI for SwingVision tennis serve analysis.
 ## Quick Start (Web App)
 1. Install dependencies: `pip install -r requirements.txt`
 2. Run the app: `python.exe -m streamlit run app.py`
-3. Drag & drop a SwingVision Excel/CSV export.
+3. Choose `Single file` or `Folder` upload mode in the sidebar.
+4. Drag & drop a SwingVision Excel/CSV export (or a folder of exports).
+5. Use the player dropdown to filter stats to selected players.
 
 ## Build Windows EXE (No Python Needed)
 1. Install PyInstaller: `pip install pyinstaller`

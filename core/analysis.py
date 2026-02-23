@@ -10,6 +10,57 @@ from .errors import DataLoadError, DataValidationError
 REQUIRED_COLUMNS = ["Player", "Shot", "Type", "Result", "Point"]
 EXCEL_EXTENSIONS = {".xlsx", ".xls", ".xlsm"}
 CSV_EXTENSIONS = {".csv"}
+GENERIC_OPPONENT_LABELS = {
+    "opponent",
+    "opp",
+    "player2",
+    "player 2",
+    "player two",
+    "other player",
+    "unknown",
+    "unknown player",
+    "n/a",
+    "na",
+}
+
+
+def canonicalize_player_label(name: object) -> str:
+    """Normalize generic opponent placeholders to a single canonical label."""
+    raw = "" if name is None else str(name).strip()
+    normalized = " ".join(raw.lower().replace("_", " ").split())
+    compact = "".join(ch for ch in normalized if ch.isalnum())
+
+    if not raw:
+        return "Opponent"
+    if normalized in GENERIC_OPPONENT_LABELS or compact in {"player2", "opponent", "unknown", "na"}:
+        return "Opponent"
+    return raw
+
+
+def normalize_summary_players(summary: pd.DataFrame) -> pd.DataFrame:
+    """Collapse equivalent placeholder player labels in a summary dataframe."""
+    if summary.empty:
+        return summary
+
+    grouped = summary.copy()
+    grouped["__player__"] = [canonicalize_player_label(player) for player in grouped.index]
+    grouped = grouped.groupby("__player__", as_index=True).sum(numeric_only=True).fillna(0)
+
+    def pct(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
+        denominator = denominator.replace(0, pd.NA)
+        return (numerator / denominator * 100).fillna(0)
+
+    if {"First Serve In", "First Serve Attempts"}.issubset(grouped.columns):
+        grouped["Overall First Serve %"] = pct(grouped["First Serve In"], grouped["First Serve Attempts"])
+    if {"Second Serve In", "Second Serve Attempts"}.issubset(grouped.columns):
+        grouped["Overall Second Serve %"] = pct(grouped["Second Serve In"], grouped["Second Serve Attempts"])
+    if {"First Serve Wins", "First Serve Attempts"}.issubset(grouped.columns):
+        grouped["First Serve Win %"] = pct(grouped["First Serve Wins"], grouped["First Serve Attempts"])
+    if {"Second Serve Wins", "Second Serve Attempts"}.issubset(grouped.columns):
+        grouped["Second Serve Win %"] = pct(grouped["Second Serve Wins"], grouped["Second Serve Attempts"])
+
+    grouped.index.name = "Player"
+    return grouped
 
 
 def _excel_engine(file_name: Optional[str]) -> Optional[str]:
@@ -286,8 +337,8 @@ def calculate_serve_win_counts(serve_win: pd.DataFrame) -> pd.DataFrame:
     )
 
     wins = grouped.pivot(index="Server", columns="Serve_Type", values="wins").fillna(0)
-    first_wins = wins.get("first_serve", 0).astype(int)
-    second_wins = wins.get("second_serve", 0).astype(int)
+    first_wins = wins.get("first_serve", pd.Series(0, index=wins.index)).astype(int)
+    second_wins = wins.get("second_serve", pd.Series(0, index=wins.index)).astype(int)
 
     return pd.DataFrame(
         {
@@ -312,8 +363,8 @@ def calculate_serve_attempts(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     attempts = grouped.pivot(index="Player", columns="Type", values="attempts").fillna(0)
-    first_attempts = attempts.get("first_serve", 0).astype(int)
-    second_attempts = attempts.get("second_serve", 0).astype(int)
+    first_attempts = attempts.get("first_serve", pd.Series(0, index=attempts.index)).astype(int)
+    second_attempts = attempts.get("second_serve", pd.Series(0, index=attempts.index)).astype(int)
 
     return pd.DataFrame(
         {
@@ -338,8 +389,8 @@ def calculate_serve_in_counts(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     counts = grouped.pivot(index="Player", columns="Type", values="in_count").fillna(0)
-    first_in = counts.get("first_serve", 0).astype(int)
-    second_in = counts.get("second_serve", 0).astype(int)
+    first_in = counts.get("first_serve", pd.Series(0, index=counts.index)).astype(int)
+    second_in = counts.get("second_serve", pd.Series(0, index=counts.index)).astype(int)
 
     return pd.DataFrame(
         {
@@ -439,23 +490,18 @@ def summarize_from_stats(source, file_name: Optional[str] = None) -> pd.DataFram
 
 
 def aggregate_season_summaries(summaries: list[pd.DataFrame]) -> pd.DataFrame:
-    """Aggregate per-match summaries into a season summary for common players."""
+    """Aggregate per-match summaries into a season summary for all players."""
     if not summaries:
         return pd.DataFrame().rename_axis("Player")
-
-    player_sets = [set(df.index) for df in summaries]
-    common_players = set.intersection(*player_sets) if player_sets else set()
-    if not common_players:
-        raise DataValidationError(
-            "Uploaded files are for different players. Please upload matches for one player only."
-        )
 
     def pct(numerator: float, denominator: float) -> float:
         return 0.0 if denominator == 0 else (numerator / denominator * 100)
 
     rows = []
-    for player in sorted(common_players):
-        combined = pd.DataFrame([df.loc[player] for df in summaries])
+    all_players = sorted({player for df in summaries for player in df.index})
+    for player in all_players:
+        player_rows = [df.loc[player] for df in summaries if player in df.index]
+        combined = pd.DataFrame(player_rows)
 
         def sum_col(name: str) -> float:
             if name not in combined.columns:

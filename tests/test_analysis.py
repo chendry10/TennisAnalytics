@@ -3,7 +3,13 @@ import unittest
 
 import pandas as pd
 
-from core.analysis import load_df, summarize_all, summarize_from_stats
+from core.analysis import (
+    aggregate_season_summaries,
+    load_df,
+    normalize_summary_players,
+    summarize_all,
+    summarize_from_stats,
+)
 
 class TestAnalysis(unittest.TestCase):
     def setUp(self) -> None:
@@ -154,6 +160,72 @@ class TestAnalysis(unittest.TestCase):
         self.assertEqual(summary.loc["Host Player", "Second Serve Attempts"], 5)
         self.assertEqual(summary.loc["Host Player", "First Serve In"], 6)
         self.assertEqual(summary.loc["Host Player", "Second Serve In"], 4)
+
+    def test_aggregate_season_summaries_includes_all_players(self) -> None:
+        match_one = pd.DataFrame(
+            {
+                "Overall First Serve %": [70.0, 40.0],
+                "Overall Second Serve %": [80.0, 50.0],
+                "First Serve In": [7, 4],
+                "Second Serve In": [8, 5],
+                "First Serve Attempts": [10, 10],
+                "Second Serve Attempts": [10, 10],
+                "First Serve Wins": [6, 3],
+                "Second Serve Wins": [7, 4],
+                "First Serve Win %": [60.0, 30.0],
+                "Second Serve Win %": [70.0, 40.0],
+            },
+            index=["Alice", "Bob"],
+        )
+        match_one.index.name = "Player"
+
+        match_two = pd.DataFrame(
+            {
+                "Overall First Serve %": [60.0, 55.0],
+                "Overall Second Serve %": [75.0, 65.0],
+                "First Serve In": [6, 5],
+                "Second Serve In": [9, 6],
+                "First Serve Attempts": [10, 10],
+                "Second Serve Attempts": [12, 9],
+                "First Serve Wins": [5, 4],
+                "Second Serve Wins": [8, 5],
+                "First Serve Win %": [50.0, 40.0],
+                "Second Serve Win %": [66.67, 55.56],
+            },
+            index=["Alice", "Cara"],
+        )
+        match_two.index.name = "Player"
+
+        season = aggregate_season_summaries([match_one, match_two])
+
+        self.assertListEqual(sorted(season.index.tolist()), ["Alice", "Bob", "Cara"])
+        self.assertEqual(season.loc["Alice", "First Serve Attempts"], 20)
+        self.assertEqual(season.loc["Bob", "First Serve Attempts"], 10)
+        self.assertEqual(season.loc["Cara", "Second Serve Attempts"], 9)
+
+    def test_normalize_summary_players_collapses_generic_opponent_labels(self) -> None:
+        summary = pd.DataFrame(
+            {
+                "First Serve In": [5, 3],
+                "Second Serve In": [4, 2],
+                "First Serve Attempts": [10, 8],
+                "Second Serve Attempts": [6, 4],
+                "First Serve Wins": [4, 2],
+                "Second Serve Wins": [3, 1],
+                "First Serve Win %": [40.0, 25.0],
+                "Second Serve Win %": [50.0, 25.0],
+                "Overall First Serve %": [50.0, 37.5],
+                "Overall Second Serve %": [66.7, 50.0],
+            },
+            index=["Opponent", "Player 2"],
+        )
+        summary.index.name = "Player"
+
+        normalized = normalize_summary_players(summary)
+
+        self.assertListEqual(normalized.index.tolist(), ["Opponent"])
+        self.assertEqual(normalized.loc["Opponent", "First Serve Attempts"], 18)
+        self.assertEqual(normalized.loc["Opponent", "Second Serve Attempts"], 10)
 
 
 if __name__ == "__main__":
