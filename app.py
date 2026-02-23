@@ -259,6 +259,7 @@ with st.sidebar:
         seen_hashes = set()
         invalid_excel_files = []
         skipped_temp_files = 0
+        skipped_metadata_files = 0
         validated_files = []
 
         for file in files_to_process:
@@ -267,6 +268,9 @@ with st.sidebar:
             base_name = normalized_name.split("/")[-1]
             if base_name.startswith("~$"):
                 skipped_temp_files += 1
+                continue
+            if base_name.lower() in {"desktop.ini", "thumbs.db", ".ds_store"} or base_name.startswith("."):
+                skipped_metadata_files += 1
                 continue
 
             file_bytes = file.getvalue()
@@ -303,6 +307,8 @@ with st.sidebar:
 
         if skipped_temp_files:
             st.caption(f"Skipped {skipped_temp_files} temporary Excel lock file(s) (~$...).")
+        if skipped_metadata_files:
+            st.caption(f"Skipped {skipped_metadata_files} metadata/system file(s).")
 
         if invalid_excel_files:
             preview = "\n".join(f"- {name}" for name in invalid_excel_files[:10])

@@ -5,11 +5,14 @@ import pandas as pd
 
 from core.analysis import (
     aggregate_season_summaries,
+    canonicalize_player_label,
+    get_excel_sheet_names,
     load_df,
     normalize_summary_players,
     summarize_all,
     summarize_from_stats,
 )
+from core.errors import DataLoadError
 
 class TestAnalysis(unittest.TestCase):
     def setUp(self) -> None:
@@ -226,6 +229,35 @@ class TestAnalysis(unittest.TestCase):
         self.assertListEqual(normalized.index.tolist(), ["Opponent"])
         self.assertEqual(normalized.loc["Opponent", "First Serve Attempts"], 18)
         self.assertEqual(normalized.loc["Opponent", "Second Serve Attempts"], 10)
+
+    def test_canonicalize_player_label_variants(self) -> None:
+        self.assertEqual(canonicalize_player_label("Opponent"), "Opponent")
+        self.assertEqual(canonicalize_player_label("player 2"), "Opponent")
+        self.assertEqual(canonicalize_player_label("PLAYER_2"), "Opponent")
+        self.assertEqual(canonicalize_player_label("unknown"), "Opponent")
+        self.assertEqual(canonicalize_player_label("  "), "Opponent")
+        self.assertEqual(canonicalize_player_label("Bailey Bell"), "Bailey Bell")
+
+    def test_get_excel_sheet_names_invalid_excel_raises(self) -> None:
+        with self.assertRaises(DataLoadError):
+            get_excel_sheet_names(b"not-a-real-excel", file_name="broken.xlsx")
+
+    def test_load_df_drops_rows_without_point(self) -> None:
+        with_missing_points = pd.DataFrame(
+            [
+                {"Player": "A", "Shot": "Serve", "Type": "first_serve", "Result": "In", "Point": "1"},
+                {"Player": "B", "Shot": "Return", "Type": "return", "Result": "Out", "Point": None},
+                {"Player": "A", "Shot": "Serve", "Type": "second_serve", "Result": "In", "Point": "2"},
+            ]
+        )
+        buffer = io.BytesIO()
+        with_missing_points.to_csv(buffer, index=False)
+        buffer.seek(0)
+
+        df = load_df(buffer.getvalue(), file_name="points.csv")
+
+        self.assertEqual(len(df), 2)
+        self.assertTrue(df["Point"].notna().all())
 
 
 if __name__ == "__main__":
