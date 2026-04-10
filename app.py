@@ -534,11 +534,6 @@ with st.sidebar:
     else:
         output_type = "csv"
 
-    performance_mode = st.toggle(
-        "Performance mode (faster)",
-        value=False,
-        help="Speeds up interactions by using lighter table rendering and hiding charts.",
-    )
 
 
 def render_metrics(summary: pd.DataFrame) -> None:
@@ -593,7 +588,7 @@ def render_metrics(summary: pd.DataFrame) -> None:
     st.dataframe(styled, width="stretch")
 
 
-def render_table(summary: pd.DataFrame, fast_mode: bool = False) -> None:
+def render_table(summary: pd.DataFrame) -> None:
     st.subheader("Full Serve Summary")
     ordered = [
         "First Serve In",
@@ -606,20 +601,6 @@ def render_table(summary: pd.DataFrame, fast_mode: bool = False) -> None:
         "Second Serve Win %",
     ]
     display = summary.reindex(columns=[col for col in ordered if col in summary.columns])
-    if fast_mode:
-        rounded = display.copy()
-        float_cols = [
-            "Overall First Serve %",
-            "Overall Second Serve %",
-            "First Serve Win %",
-            "Second Serve Win %",
-        ]
-        for col in float_cols:
-            if col in rounded.columns:
-                rounded[col] = rounded[col].round(2)
-        st.dataframe(rounded, width="stretch")
-        return
-
     formatters = {
         "Overall First Serve %": "{:.2f}",
         "Overall Second Serve %": "{:.2f}",
@@ -653,12 +634,6 @@ def render_table(summary: pd.DataFrame, fast_mode: bool = False) -> None:
     return_display = summary.reindex(columns=[col for col in return_ordered if col in summary.columns])
     if return_display.empty or return_display.columns.empty:
         st.caption("No return data available.")
-    elif fast_mode:
-        rounded_ret = return_display.copy()
-        for col in ["First Return In %", "Second Return In %", "First Return Win %", "Second Return Win %"]:
-            if col in rounded_ret.columns:
-                rounded_ret[col] = rounded_ret[col].round(2)
-        st.dataframe(rounded_ret, width="stretch")
     else:
         ret_formatters = {
             "First Return In %": "{:.2f}",
@@ -680,11 +655,7 @@ def render_table(summary: pd.DataFrame, fast_mode: bool = False) -> None:
         st.dataframe(ret_styled, width="stretch")
 
 
-def render_charts(summary: pd.DataFrame, fast_mode: bool = False) -> None:
-    if fast_mode:
-        st.caption("Charts are hidden in Performance mode for faster interaction.")
-        return
-
+def render_charts(summary: pd.DataFrame) -> None:
     st.subheader("Overall Serve In % vs Win %")
     compare_long = summary.reset_index().melt(
         id_vars="Player",
@@ -998,8 +969,8 @@ if files_to_process:
         filtered_summary = combined_summary.loc[players_after_file_filter]
 
         render_metrics(filtered_summary)
-        render_table(filtered_summary, fast_mode=performance_mode)
-        render_charts(filtered_summary, fast_mode=performance_mode)
+        render_table(filtered_summary)
+        render_charts(filtered_summary)
 
         download_data, filename = export_summary_bytes(filtered_summary, output_type)
         st.download_button(
