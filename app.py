@@ -70,6 +70,21 @@ html, body, [class*="css"] {
     background-color: #0b1210;
 }
 
+[data-testid="stHeader"] button,
+[data-testid="stHeader"] button svg,
+[data-testid="stHeader"] [data-testid="stToolbar"] button,
+[data-testid="stHeader"] [data-testid="stToolbar"] button svg,
+[data-testid="stHeader"] [data-testid="stToolbar"] button path {
+    color: var(--ink) !important;
+    fill: var(--ink) !important;
+    opacity: 0.85;
+}
+
+[data-testid="stHeader"] button:hover,
+[data-testid="stHeader"] button:hover svg {
+    opacity: 1;
+}
+
 .block-container {
     padding-top: 2rem;
     padding-bottom: 2rem;
