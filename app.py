@@ -1,13 +1,30 @@
 import hashlib
+import io
+import logging
 import re
 from datetime import date, timedelta
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
 from core.analysis import (
     REQUIRED_COLUMNS,
+    POINT_LENGTH_BUCKETS,
+    excel_engine,
+    validate_and_rename,
     aggregate_season_summaries,
+    calculate_point_length_outcomes,
+    calculate_return_attempts,
+    calculate_return_in_counts,
+    calculate_return_percentages,
+    calculate_return_win_counts,
+    calculate_return_win_percentages,
     export_summary_bytes,
     get_excel_sheet_names,
     get_raw_columns,
@@ -222,11 +239,11 @@ div[data-baseweb="popover"] [role="menuitem"]:focus {
 
 h1, h2, h3, h4,
 .stMarkdown p,
-label,
-small,
-span,
+.stMainBlockContainer label,
+.stMainBlockContainer small,
+.stMainBlockContainer span,
 div[data-testid="stCaptionContainer"],
-p {
+.stMainBlockContainer p {
     color: var(--ink) !important;
 }
 
@@ -281,6 +298,15 @@ div[data-baseweb="notification"],
 .stCheckbox [data-testid="stMarkdownContainer"] p {
     color: #eef6f3 !important;
 }
+
+/* Reset text color for Streamlit deploy dialog and modals */
+[data-testid="stModal"],
+[data-testid="stModal"] *,
+div[data-baseweb="modal"],
+div[data-baseweb="modal"] * {
+    color: initial !important;
+    fill: initial !important;
+}
 </style>
 """
 
@@ -311,23 +337,66 @@ def cached_file_summary(
     file_name: str,
     sheet_for_file: str | int | None,
 ) -> pd.DataFrame:
+    base_name = file_name.replace("\\", "/").split("/")[-1]
+    if base_name.startswith("~$"):
+        return pd.DataFrame().rename_axis("Player")
+
     lower_name = file_name.lower()
     is_excel = lower_name.endswith(EXCEL_EXTENSIONS)
 
     summary = None
     if is_excel:
-        sheet_names = cached_excel_sheet_names(file_bytes, file_name)
-        if "Stats" in sheet_names:
-            summary = summarize_from_stats(file_bytes, file_name=file_name)
+        engine = excel_engine(file_name)
+        logger.info("Loading %s (engine=%s)", file_name, engine)
+        with pd.ExcelFile(io.BytesIO(file_bytes), engine=engine) as xls:
+            sheet_names = list(xls.sheet_names)
+
+            if "Stats" in sheet_names:
+                logger.info("Using Stats sheet for %s", file_name)
+                stats_df = xls.parse("Stats")
+                settings_df = xls.parse("Settings")
+                summary = summarize_from_stats(
+                    stats_df=stats_df, settings_df=settings_df,
+                )
+
+                if summary is not None and not summary.empty:
+                    attempt_cols = ["First Serve Attempts", "Second Serve Attempts"]
+                    if all(col in summary.columns for col in attempt_cols):
+                        total_attempts = summary[attempt_cols].to_numpy().sum()
+                        if total_attempts == 0:
+                            summary = None
+
+            # Read Shots sheet once for return + point-length stats (or full analysis)
+            shots_sheet = sheet_for_file if sheet_for_file is not None else (
+                "Shots" if "Shots" in sheet_names else 0
+            )
+            try:
+                raw_df = validate_and_rename(xls.parse(shots_sheet))
+                raw_df = raw_df.dropna(subset=["Point"])
+            except Exception:
+                raw_df = None
 
             if summary is not None and not summary.empty:
-                attempt_cols = ["First Serve Attempts", "Second Serve Attempts"]
-                if all(col in summary.columns for col in attempt_cols):
-                    total_attempts = summary[attempt_cols].to_numpy().sum()
-                    if total_attempts == 0:
-                        summary = None
+                # Augment Stats-based summary with return + point-length data from raw shots
+                if raw_df is not None and not raw_df.empty:
+                    ret_in = calculate_return_in_counts(raw_df)
+                    ret_att = calculate_return_attempts(raw_df)
+                    ret_pcts = calculate_return_percentages(raw_df)
+                    ret_wins = calculate_return_win_counts(raw_df)
+                    ret_win_pcts = calculate_return_win_percentages(raw_df)
+                    pl_outcomes = calculate_point_length_outcomes(raw_df)
+
+                    for extra in [ret_in, ret_att, ret_pcts, ret_wins, ret_win_pcts, pl_outcomes]:
+                        if not extra.empty:
+                            summary = summary.join(extra, how="left").fillna(0)
+            else:
+                # No Stats sheet or empty stats — compute everything from raw shots
+                logger.info("No Stats sheet for %s, using raw shots", file_name)
+                if raw_df is not None and not raw_df.empty:
+                    summary = summarize_all(raw_df)
 
     if summary is None or summary.empty:
+        logger.warning("Falling back to full load_df for %s", file_name)
         df = load_df(
             file_bytes,
             sheet=sheet_for_file,
@@ -358,7 +427,7 @@ with st.sidebar:
     upload_mode = st.radio(
         "Choose input type",
         ["Single file", "Folder"],
-        index=0,
+        index=1,
     )
 
     if upload_mode == "Single file":
@@ -430,9 +499,9 @@ with st.sidebar:
             validated_files.append(file)
 
         if skipped_temp_files:
-            st.caption(f"Skipped {skipped_temp_files} temporary Excel lock file(s) (~$...).")
+            logger.info("Skipped %d temporary Excel lock file(s)", skipped_temp_files)
         if skipped_metadata_files:
-            st.caption(f"Skipped {skipped_metadata_files} metadata/system file(s).")
+            logger.info("Skipped %d metadata/system file(s)", skipped_metadata_files)
 
         if invalid_excel_files:
             preview = "\n".join(f"- {name}" for name in invalid_excel_files[:10])
@@ -488,6 +557,12 @@ def render_metrics(summary: pd.DataFrame) -> None:
         col2.metric("2nd Serve Win %", f"{float(row.get('Second Serve Win %', 0)):.1f}%")
         col3.metric("1st Serve In %", f"{float(row.get('Overall First Serve %', 0)):.1f}%")
         col4.metric("2nd Serve In %", f"{float(row.get('Overall Second Serve %', 0)):.1f}%")
+
+        col5, col6, col7, col8 = st.columns(4)
+        col5.metric("1st Return Win %", f"{float(row.get('First Return Win %', 0)):.1f}%")
+        col6.metric("2nd Return Win %", f"{float(row.get('Second Return Win %', 0)):.1f}%")
+        col7.metric("1st Return In %", f"{float(row.get('First Return In %', 0)):.1f}%")
+        col8.metric("2nd Return In %", f"{float(row.get('Second Return In %', 0)):.1f}%")
         return
 
     key_cols = [
@@ -495,6 +570,10 @@ def render_metrics(summary: pd.DataFrame) -> None:
         "Second Serve Win %",
         "Overall First Serve %",
         "Overall Second Serve %",
+        "First Return Win %",
+        "Second Return Win %",
+        "First Return In %",
+        "Second Return In %",
     ]
     compact = summary.reindex(columns=[col for col in key_cols if col in summary.columns]).sort_values(
         by="First Serve Win %", ascending=False
@@ -505,6 +584,10 @@ def render_metrics(summary: pd.DataFrame) -> None:
             "Second Serve Win %": "{:.1f}%",
             "Overall First Serve %": "{:.1f}%",
             "Overall Second Serve %": "{:.1f}%",
+            "First Return Win %": "{:.1f}%",
+            "Second Return Win %": "{:.1f}%",
+            "First Return In %": "{:.1f}%",
+            "Second Return In %": "{:.1f}%",
         }
     )
     st.dataframe(styled, width="stretch")
@@ -556,65 +639,51 @@ def render_table(summary: pd.DataFrame, fast_mode: bool = False) -> None:
     )
     st.dataframe(styled, width="stretch")
 
+    st.subheader("Full Return Summary")
+    return_ordered = [
+        "First Return In",
+        "First Return Attempts",
+        "First Return In %",
+        "Second Return In",
+        "Second Return Attempts",
+        "Second Return In %",
+        "First Return Win %",
+        "Second Return Win %",
+    ]
+    return_display = summary.reindex(columns=[col for col in return_ordered if col in summary.columns])
+    if return_display.empty or return_display.columns.empty:
+        st.caption("No return data available.")
+    elif fast_mode:
+        rounded_ret = return_display.copy()
+        for col in ["First Return In %", "Second Return In %", "First Return Win %", "Second Return Win %"]:
+            if col in rounded_ret.columns:
+                rounded_ret[col] = rounded_ret[col].round(2)
+        st.dataframe(rounded_ret, width="stretch")
+    else:
+        ret_formatters = {
+            "First Return In %": "{:.2f}",
+            "Second Return In %": "{:.2f}",
+            "First Return Win %": "{:.2f}",
+            "Second Return Win %": "{:.2f}",
+            "First Return Attempts": "{:.0f}",
+            "Second Return Attempts": "{:.0f}",
+            "First Return In": "{:.0f}",
+            "Second Return In": "{:.0f}",
+        }
+        ret_styled = (
+            return_display.style.format(ret_formatters)
+            .set_table_styles([
+                {"selector": "th", "props": [("color", "#f4f7f6"), ("background", "#0f1715")]},
+                {"selector": "td", "props": [("color", "#f4f7f6"), ("background", "#101816")]},
+            ])
+        )
+        st.dataframe(ret_styled, width="stretch")
+
 
 def render_charts(summary: pd.DataFrame, fast_mode: bool = False) -> None:
     if fast_mode:
         st.caption("Charts are hidden in Performance mode for faster interaction.")
         return
-
-    st.subheader("Serve Win % by Player")
-    win_long = summary.reset_index().melt(
-        id_vars="Player",
-        value_vars=["First Serve Win %", "Second Serve Win %"],
-        var_name="Serve Type",
-        value_name="Win %",
-    )
-    win_chart = px.bar(
-        win_long,
-        x="Player",
-        y="Win %",
-        color="Serve Type",
-        barmode="group",
-        text="Win %",
-        color_discrete_sequence=["#18a66c", "#d6ff3d"],
-    )
-    win_chart.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-    win_chart.update_layout(
-        template="plotly_dark",
-        height=320,
-        margin=dict(l=20, r=20, t=20, b=40),
-        yaxis=dict(range=[0, 100], title="Win %"),
-        xaxis=dict(title=None),
-        legend_title_text="",
-    )
-    st.plotly_chart(win_chart, width="stretch")
-
-    st.subheader("Overall Serve In %")
-    overall_long = summary.reset_index().melt(
-        id_vars="Player",
-        value_vars=["Overall First Serve %", "Overall Second Serve %"],
-        var_name="Serve Type",
-        value_name="In %",
-    )
-    overall_chart = px.bar(
-        overall_long,
-        x="Player",
-        y="In %",
-        color="Serve Type",
-        barmode="group",
-        text="In %",
-        color_discrete_sequence=["#00c2ff", "#18a66c"],
-    )
-    overall_chart.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-    overall_chart.update_layout(
-        template="plotly_dark",
-        height=320,
-        margin=dict(l=20, r=20, t=20, b=40),
-        yaxis=dict(range=[0, 100], title="In %"),
-        xaxis=dict(title=None),
-        legend_title_text="",
-    )
-    st.plotly_chart(overall_chart, width="stretch")
 
     st.subheader("Overall Serve In % vs Win %")
     compare_long = summary.reset_index().melt(
@@ -648,23 +717,106 @@ def render_charts(summary: pd.DataFrame, fast_mode: bool = False) -> None:
     )
     st.plotly_chart(compare_chart, width="stretch")
 
+    # ---------- Return charts ----------
+    return_win_vars = [c for c in ["First Return Win %", "Second Return Win %"] if c in summary.columns]
+    if return_win_vars:
+        st.subheader("Return Win % by Player")
+        ret_win_long = summary.reset_index().melt(
+            id_vars="Player",
+            value_vars=return_win_vars,
+            var_name="Return Type",
+            value_name="Win %",
+        )
+        ret_win_chart = px.bar(
+            ret_win_long,
+            x="Player",
+            y="Win %",
+            color="Return Type",
+            barmode="group",
+            text="Win %",
+            color_discrete_sequence=["#ff6f61", "#ffb347"],
+        )
+        ret_win_chart.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+        ret_win_chart.update_layout(
+            template="plotly_dark",
+            height=320,
+            margin=dict(l=20, r=20, t=20, b=40),
+            yaxis=dict(range=[0, 100], title="Win %"),
+            xaxis=dict(title=None),
+            legend_title_text="",
+        )
+        st.plotly_chart(ret_win_chart, width="stretch")
+
+    # ---------- Point-length outcome chart ----------
+    bucket_win_cols = [f"{b.replace(' ', '_').replace('+', 'plus')}_Win%" for b in POINT_LENGTH_BUCKETS]
+    available_bucket_cols = [c for c in bucket_win_cols if c in summary.columns]
+    if available_bucket_cols:
+        st.subheader("Win % by Rally Length")
+        bucket_labels = {
+            "0-4_shots_Win%": "0-4 shots",
+            "5-10_shots_Win%": "5-10 shots",
+            "11plus_shots_Win%": "11+ shots",
+        }
+        pl_long = summary.reset_index().melt(
+            id_vars="Player",
+            value_vars=available_bucket_cols,
+            var_name="Rally Length",
+            value_name="Win %",
+        )
+        pl_long["Rally Length"] = pl_long["Rally Length"].map(bucket_labels)
+        pl_chart = px.bar(
+            pl_long,
+            x="Rally Length",
+            y="Win %",
+            color="Player",
+            barmode="group",
+            text="Win %",
+            color_discrete_sequence=["#18a66c", "#d6ff3d", "#00c2ff", "#ff6f61"],
+        )
+        pl_chart.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+        pl_chart.update_layout(
+            template="plotly_dark",
+            height=340,
+            margin=dict(l=20, r=20, t=20, b=40),
+            yaxis=dict(range=[0, 100], title="Win %"),
+            xaxis=dict(title=None, categoryorder="array", categoryarray=["0-4 shots", "5-10 shots", "11+ shots"]),
+            legend_title_text="",
+        )
+        st.plotly_chart(pl_chart, width="stretch")
+
 
 if files_to_process:
     try:
         with st.spinner("Analyzing uploaded data..."):
             summaries = []
             summaries_by_file = {}
+            skipped_analysis = []
             for file in files_to_process:
                 file_name = file.name
                 file_bytes = file.getvalue()
                 sheet_for_file = default_sheet_by_file.get(file_name, sheet_name)
-                summary = cached_file_summary(
-                    file_bytes=file_bytes,
-                    file_name=file_name,
-                    sheet_for_file=sheet_for_file,
-                )
+                try:
+                    summary = cached_file_summary(
+                        file_bytes=file_bytes,
+                        file_name=file_name,
+                        sheet_for_file=sheet_for_file,
+                    )
+                except Exception as exc:
+                    logger.error("Failed to analyze %s: %s", file_name, exc)
+                    skipped_analysis.append(file_name)
+                    continue
                 summaries.append(summary)
                 summaries_by_file[file_name] = summary
+
+            if skipped_analysis:
+                st.warning(
+                    f"Could not analyze {len(skipped_analysis)} file(s) due to data errors: "
+                    + ", ".join(skipped_analysis)
+                )
+
+            if not summaries:
+                st.error("No files could be analyzed. Please check your data files.")
+                st.stop()
 
             full_summary = summaries[0] if len(summaries) == 1 else aggregate_season_summaries(summaries)
             full_summary = normalize_summary_players(full_summary)

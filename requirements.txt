@@ -1,5 +1,6 @@
 pandas
 openpyxl
 xlrd
+python-calamine
 streamlit
 plotly

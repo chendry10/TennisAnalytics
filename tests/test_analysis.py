@@ -6,13 +6,21 @@ import pandas as pd
 from core.analysis import (
     aggregate_season_summaries,
     canonicalize_player_label,
+    calculate_point_length_outcomes,
+    calculate_return_in_counts,
+    calculate_return_attempts,
+    calculate_return_percentages,
+    calculate_return_win_counts,
+    calculate_return_win_percentages,
     get_excel_sheet_names,
     load_df,
     normalize_summary_players,
     summarize_all,
     summarize_from_stats,
+    validate_and_rename,
+    POINT_LENGTH_BUCKETS,
 )
-from core.errors import DataLoadError
+from core.errors import DataLoadError, DataValidationError
 
 class TestAnalysis(unittest.TestCase):
     def setUp(self) -> None:
@@ -258,6 +266,189 @@ class TestAnalysis(unittest.TestCase):
 
         self.assertEqual(len(df), 2)
         self.assertTrue(df["Point"].notna().all())
+
+    def test_point_length_outcomes(self) -> None:
+        # Build a dataset with varying rally lengths
+        df = pd.DataFrame(
+            [
+                # Point 1: 2 shots (0-4 bucket), A serves, B returns Out → A wins
+                {"Player": "A", "Shot": 1, "Type": "first_serve", "Result": "In", "Point": "1"},
+                {"Player": "B", "Shot": 2, "Type": "first_return", "Result": "Out", "Point": "1"},
+                # Point 2: 6 shots (5-10 bucket), A serves, rally, B wins (A hits Out)
+                {"Player": "A", "Shot": 1, "Type": "first_serve", "Result": "In", "Point": "2"},
+                {"Player": "B", "Shot": 2, "Type": "first_return", "Result": "In", "Point": "2"},
+                {"Player": "A", "Shot": 3, "Type": "serve_plus_one", "Result": "In", "Point": "2"},
+                {"Player": "B", "Shot": 4, "Type": "return_plus_one", "Result": "In", "Point": "2"},
+                {"Player": "A", "Shot": 5, "Type": "in_play", "Result": "In", "Point": "2"},
+                {"Player": "B", "Shot": 6, "Type": "in_play", "Result": "In", "Point": "2"},
+                # Point 3: 3 shots (0-4 bucket), B serves, A returns In (last shot In = A wins)
+                {"Player": "B", "Shot": 1, "Type": "first_serve", "Result": "In", "Point": "3"},
+                {"Player": "A", "Shot": 2, "Type": "first_return", "Result": "In", "Point": "3"},
+                {"Player": "B", "Shot": 3, "Type": "serve_plus_one", "Result": "Out", "Point": "3"},
+            ]
+        )
+        outcomes = calculate_point_length_outcomes(df)
+
+        self.assertIn("A", outcomes.index)
+        self.assertIn("B", outcomes.index)
+
+        # 0-4 bucket: 2 points total, A wins both (pt1 and pt3)
+        self.assertEqual(outcomes.loc["A", "0-4_shots_Wins"], 2)
+        self.assertEqual(outcomes.loc["A", "0-4_shots_Total"], 2)
+        self.assertAlmostEqual(outcomes.loc["A", "0-4_shots_Win%"], 100.0)
+        self.assertEqual(outcomes.loc["B", "0-4_shots_Wins"], 0)
+
+        # 5-10 bucket: 1 point, B wins (last shot In by B)
+        self.assertEqual(outcomes.loc["B", "5-10_shots_Wins"], 1)
+        self.assertEqual(outcomes.loc["A", "5-10_shots_Wins"], 0)
+
+        # 11+ bucket: no points
+        self.assertEqual(outcomes.loc["A", "11plus_shots_Total"], 0)
+
+    def test_return_stats(self) -> None:
+        df = pd.DataFrame(
+            [
+                # Point 1: A serves first, B returns first_return In, A Out → B wins
+                {"Player": "A", "Shot": 1, "Type": "first_serve", "Result": "In", "Point": "1"},
+                {"Player": "B", "Shot": 2, "Type": "first_return", "Result": "In", "Point": "1"},
+                {"Player": "A", "Shot": 3, "Type": "serve_plus_one", "Result": "Out", "Point": "1"},
+                # Point 2: A serves first (fault), then second serve, B second_return Out → A wins
+                {"Player": "A", "Shot": 1, "Type": "first_serve", "Result": "Out", "Point": "2"},
+                {"Player": "A", "Shot": 2, "Type": "second_serve", "Result": "In", "Point": "2"},
+                {"Player": "B", "Shot": 3, "Type": "second_return", "Result": "Out", "Point": "2"},
+                # Point 3: B serves first, A first_return Net → B wins
+                {"Player": "B", "Shot": 1, "Type": "first_serve", "Result": "In", "Point": "3"},
+                {"Player": "A", "Shot": 2, "Type": "first_return", "Result": "Net", "Point": "3"},
+            ]
+        )
+
+        ret_in = calculate_return_in_counts(df)
+        self.assertEqual(ret_in.loc["B", "First Return In"], 1)
+        self.assertEqual(ret_in.loc["B", "Second Return In"], 0)
+        # A's only return was Net, so A may not appear in ret_in (no "In" returns)
+        if "A" in ret_in.index:
+            self.assertEqual(ret_in.loc["A", "First Return In"], 0)
+
+        ret_att = calculate_return_attempts(df)
+        self.assertEqual(ret_att.loc["B", "First Return Attempts"], 1)
+        self.assertEqual(ret_att.loc["B", "Second Return Attempts"], 1)
+        self.assertEqual(ret_att.loc["A", "First Return Attempts"], 1)
+
+        ret_pcts = calculate_return_percentages(df)
+        self.assertAlmostEqual(ret_pcts.loc["B", "First Return In %"], 100.0)
+        self.assertAlmostEqual(ret_pcts.loc["B", "Second Return In %"], 0.0)
+        self.assertAlmostEqual(ret_pcts.loc["A", "First Return In %"], 0.0)
+
+        ret_wins = calculate_return_win_counts(df)
+        self.assertEqual(ret_wins.loc["B", "First Return Wins"], 1)
+        self.assertEqual(ret_wins.loc["B", "Second Return Wins"], 0)
+
+        ret_win_pcts = calculate_return_win_percentages(df)
+        self.assertAlmostEqual(ret_win_pcts.loc["B", "First Return Win %"], 100.0)
+        self.assertAlmostEqual(ret_win_pcts.loc["B", "Second Return Win %"], 0.0)
+
+    def test_summarize_all_includes_return_and_point_length_columns(self) -> None:
+        df = pd.DataFrame(
+            [
+                {"Player": "A", "Shot": 1, "Type": "first_serve", "Result": "In", "Point": "1"},
+                {"Player": "B", "Shot": 2, "Type": "first_return", "Result": "Out", "Point": "1"},
+                {"Player": "A", "Shot": 1, "Type": "first_serve", "Result": "Out", "Point": "2"},
+                {"Player": "A", "Shot": 2, "Type": "second_serve", "Result": "In", "Point": "2"},
+                {"Player": "B", "Shot": 3, "Type": "second_return", "Result": "In", "Point": "2"},
+                {"Player": "A", "Shot": 4, "Type": "serve_plus_one", "Result": "Out", "Point": "2"},
+                {"Player": "B", "Shot": 1, "Type": "first_serve", "Result": "In", "Point": "3"},
+                {"Player": "A", "Shot": 2, "Type": "first_return", "Result": "In", "Point": "3"},
+                {"Player": "B", "Shot": 3, "Type": "serve_plus_one", "Result": "Out", "Point": "3"},
+            ]
+        )
+
+        summary = summarize_all(df)
+
+        # Return columns should exist
+        self.assertIn("First Return In", summary.columns)
+        self.assertIn("First Return Attempts", summary.columns)
+        self.assertIn("First Return In %", summary.columns)
+        self.assertIn("First Return Win %", summary.columns)
+
+        # Point-length columns should exist
+        self.assertIn("0-4_shots_Win%", summary.columns)
+        self.assertIn("5-10_shots_Win%", summary.columns)
+        self.assertIn("11plus_shots_Win%", summary.columns)
+
+    def test_empty_dataframe(self) -> None:
+        """summarize_all on an empty DataFrame with correct columns should not crash."""
+        df = pd.DataFrame(columns=["Player", "Shot", "Type", "Result", "Point"])
+        summary = summarize_all(df)
+        self.assertTrue(summary.empty)
+
+    def test_single_point_match(self) -> None:
+        """A match with exactly one point should produce valid percentages."""
+        df = pd.DataFrame(
+            [
+                {"Player": "A", "Shot": 1, "Type": "first_serve", "Result": "In", "Point": "1"},
+                {"Player": "B", "Shot": 2, "Type": "first_return", "Result": "Out", "Point": "1"},
+            ]
+        )
+        summary = summarize_all(df)
+        self.assertIn("A", summary.index)
+        self.assertAlmostEqual(summary.loc["A", "First Serve Win %"], 100.0)
+        self.assertEqual(summary.loc["A", "First Serve Attempts"], 1)
+
+    def test_missing_stats_sheet_falls_back(self) -> None:
+        """An Excel file without a Stats sheet should still be analyzable via Shots."""
+        shots = pd.DataFrame(
+            [
+                {"Player": "A", "Shot": 1, "Type": "first_serve", "Result": "In", "Point": "1"},
+                {"Player": "B", "Shot": 2, "Type": "first_return", "Result": "Out", "Point": "1"},
+            ]
+        )
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            shots.to_excel(writer, sheet_name="Shots", index=False)
+        buffer.seek(0)
+
+        df = load_df(buffer.getvalue(), sheet="Shots", file_name="no_stats.xlsx")
+        summary = summarize_all(df)
+        self.assertIn("A", summary.index)
+
+    def test_malformed_result_column(self) -> None:
+        """Non-standard Result values (numbers, blanks) should not crash analysis."""
+        df = pd.DataFrame(
+            [
+                {"Player": "A", "Shot": 1, "Type": "first_serve", "Result": 123, "Point": "1"},
+                {"Player": "B", "Shot": 2, "Type": "first_return", "Result": "", "Point": "1"},
+                {"Player": "A", "Shot": 1, "Type": "first_serve", "Result": "In", "Point": "2"},
+                {"Player": "B", "Shot": 2, "Type": "first_return", "Result": "Out", "Point": "2"},
+            ]
+        )
+        df = validate_and_rename(df)
+        df = df.dropna(subset=["Point"])
+        summary = summarize_all(df)
+        self.assertIn("A", summary.index)
+
+    def test_single_player_only(self) -> None:
+        """Data with only one player should not cause index errors in pivots."""
+        df = pd.DataFrame(
+            [
+                {"Player": "A", "Shot": 1, "Type": "first_serve", "Result": "In", "Point": "1"},
+                {"Player": "A", "Shot": 2, "Type": "in_play", "Result": "In", "Point": "1"},
+            ]
+        )
+        summary = summarize_all(df)
+        self.assertIn("A", summary.index)
+        self.assertEqual(len(summary.index), 1)
+
+    def test_no_returns_in_data(self) -> None:
+        """Data with no return types should produce zero return stats, not errors."""
+        df = pd.DataFrame(
+            [
+                {"Player": "A", "Shot": 1, "Type": "first_serve", "Result": "In", "Point": "1"},
+                {"Player": "B", "Shot": 2, "Type": "in_play", "Result": "Out", "Point": "1"},
+            ]
+        )
+        summary = summarize_all(df)
+        self.assertEqual(summary.loc["A", "First Return In"], 0)
+        self.assertEqual(summary.loc["A", "First Return Attempts"], 0)
 
 
 if __name__ == "__main__":
