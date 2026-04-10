@@ -70,19 +70,27 @@ html, body, [class*="css"] {
     background-color: #0b1210;
 }
 
+[data-testid="stHeader"] *,
 [data-testid="stHeader"] button,
-[data-testid="stHeader"] button svg,
+[data-testid="stHeader"] a,
+[data-testid="stHeader"] svg,
+[data-testid="stHeader"] path,
+[data-testid="stHeader"] span,
+[data-testid="stHeader"] [data-testid="stToolbar"] *,
 [data-testid="stHeader"] [data-testid="stToolbar"] button,
-[data-testid="stHeader"] [data-testid="stToolbar"] button svg,
-[data-testid="stHeader"] [data-testid="stToolbar"] button path {
-    color: var(--ink) !important;
-    fill: var(--ink) !important;
-    opacity: 0.85;
+[data-testid="stHeader"] [data-testid="stToolbar"] svg,
+[data-testid="stHeader"] [data-testid="stToolbar"] path {
+    color: #ffffff !important;
+    fill: #ffffff !important;
+    stroke: #ffffff !important;
+    opacity: 1 !important;
 }
 
-[data-testid="stHeader"] button:hover,
-[data-testid="stHeader"] button:hover svg {
-    opacity: 1;
+[data-testid="stHeader"] [data-testid="stToolbar"] button:hover,
+[data-testid="stHeader"] button:hover {
+    color: var(--accent) !important;
+    fill: var(--accent) !important;
+    stroke: var(--accent) !important;
 }
 
 .block-container {
