@@ -8,6 +8,7 @@ A polished Streamlit dashboard and CLI for SwingVision tennis serve analysis.
 3. Choose `Single file` or `Folder` upload mode in the sidebar.
 4. Drag & drop a SwingVision Excel/CSV export (or a folder of exports).
 5. Use the player dropdown to filter stats to selected players.
+6. Optional: use `Date filter` (`All dates`, `Last 7 days`, `Last 30 days`, or `Custom range`) to limit files by filename date.
 
 ## Build Windows EXE (No Python Needed)
 1. Install PyInstaller: `pip install pyinstaller`

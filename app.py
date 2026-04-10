@@ -1,4 +1,6 @@
 import hashlib
+import re
+from datetime import date, timedelta
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -29,15 +31,17 @@ CSS = """
     --court-green: #0f3d2e;
     --court-bright: #18a66c;
     --accent: #d6ff3d;
-    --card: #141a19;
-    --ink: #f4f7f6;
-    --muted: #a7b3af;
+    --card: #15201d;
+    --ink: #ffffff;
+    --muted: #d6e0dc;
 }
 
 html, body, [class*="css"] {
     font-family: "Inter", "Segoe UI", system-ui, sans-serif;
     background-color: #0b1210;
     color: var(--ink);
+    font-size: 17px;
+    line-height: 1.45;
 }
 
 [data-testid="stAppViewContainer"] {
@@ -66,13 +70,14 @@ html, body, [class*="css"] {
 .hero h1 {
     color: var(--accent);
     margin-bottom: 0.4rem;
-    font-size: 2.2rem;
+    font-size: 2.35rem;
 }
 
 .hero p {
     color: var(--muted);
     margin: 0;
-    font-size: 1rem;
+    font-size: 1.12rem;
+    font-weight: 500;
 }
 
 .metric-card {
@@ -84,7 +89,8 @@ html, body, [class*="css"] {
 
 .stMetric label,
 div[data-testid="stMetricLabel"] {
-    color: #d7e3df !important;
+    color: #f2f7f5 !important;
+    font-size: 1.02rem !important;
 }
 
 .stButton>button {
@@ -103,7 +109,9 @@ div[data-testid="stMetricLabel"] {
 
 .stMetricValue,
 div[data-testid="stMetricValue"] {
-    color: #f4f7f6 !important;
+    color: #ffffff !important;
+    font-size: 2rem !important;
+    font-weight: 700 !important;
 }
 
 .stFileUploader button,
@@ -136,6 +144,7 @@ div[data-testid="stMetricValue"] {
 .stFileUploader p,
 .stFileUploader span {
     color: var(--ink) !important;
+    font-size: 1rem !important;
 }
 
 section[data-testid="stSidebar"] {
@@ -153,6 +162,8 @@ section[data-testid="stSidebar"] .stSelectbox label,
 section[data-testid="stSidebar"] .stRadio label,
 section[data-testid="stSidebar"] .stFileUploader label {
     color: var(--ink) !important;
+    font-size: 1.03rem !important;
+    font-weight: 600 !important;
 }
 
 .stSelectbox div[data-baseweb="select"] > div,
@@ -165,6 +176,7 @@ section[data-testid="stSidebar"] .stFileUploader label {
     background-color: #0f1715 !important;
     color: var(--ink) !important;
     border-color: rgba(255,255,255,0.12) !important;
+    font-size: 1.02rem !important;
 }
 
 div[role="listbox"],
@@ -175,6 +187,7 @@ ul[role="listbox"] {
 
 div[role="option"] {
     color: var(--ink) !important;
+    font-size: 1.02rem !important;
 }
 
 div[role="menu"],
@@ -206,6 +219,68 @@ div[data-baseweb="popover"] [role="menuitem"]:focus {
 [data-testid="stMainMenuPopover"] [role="menuitem"]:focus {
     background-color: #141f1c !important;
 }
+
+h1, h2, h3, h4,
+.stMarkdown p,
+label,
+small,
+span,
+div[data-testid="stCaptionContainer"],
+p {
+    color: var(--ink) !important;
+}
+
+h2 {
+    font-size: 1.9rem !important;
+}
+
+h3 {
+    font-size: 1.45rem !important;
+}
+
+div[data-testid="stCaptionContainer"],
+.stCaption,
+small {
+    color: #dce8e4 !important;
+    font-size: 0.98rem !important;
+}
+
+section[data-testid="stSidebar"] p,
+section[data-testid="stSidebar"] span,
+section[data-testid="stSidebar"] label {
+    color: #f5fbf8 !important;
+}
+
+.stDataFrame,
+.stDataFrame * {
+    color: #f5fbf8 !important;
+    font-size: 1rem !important;
+}
+
+div[data-testid="stDataFrame"] th,
+div[data-testid="stDataFrame"] td {
+    color: #f5fbf8 !important;
+}
+
+.stAlert,
+div[data-baseweb="notification"],
+[data-testid="stNotification"] {
+    color: #ffffff !important;
+    font-size: 1rem !important;
+}
+
+.stRadio label,
+.stCheckbox label,
+.stSelectbox label,
+.stMultiSelect label {
+    font-size: 1.02rem !important;
+    font-weight: 600 !important;
+}
+
+.stRadio [role="radiogroup"] label,
+.stCheckbox [data-testid="stMarkdownContainer"] p {
+    color: #eef6f3 !important;
+}
 </style>
 """
 
@@ -223,6 +298,56 @@ st.markdown(
 
 SUPPORTED_EXTENSIONS = (".xlsx", ".xls", ".xlsm", ".csv")
 EXCEL_EXTENSIONS = (".xlsx", ".xls", ".xlsm")
+
+
+@st.cache_data(show_spinner=False)
+def cached_excel_sheet_names(file_bytes: bytes, file_name: str) -> list[str]:
+    return get_excel_sheet_names(file_bytes, file_name)
+
+
+@st.cache_data(show_spinner=False)
+def cached_file_summary(
+    file_bytes: bytes,
+    file_name: str,
+    sheet_for_file: str | int | None,
+) -> pd.DataFrame:
+    lower_name = file_name.lower()
+    is_excel = lower_name.endswith(EXCEL_EXTENSIONS)
+
+    summary = None
+    if is_excel:
+        sheet_names = cached_excel_sheet_names(file_bytes, file_name)
+        if "Stats" in sheet_names:
+            summary = summarize_from_stats(file_bytes, file_name=file_name)
+
+            if summary is not None and not summary.empty:
+                attempt_cols = ["First Serve Attempts", "Second Serve Attempts"]
+                if all(col in summary.columns for col in attempt_cols):
+                    total_attempts = summary[attempt_cols].to_numpy().sum()
+                    if total_attempts == 0:
+                        summary = None
+
+    if summary is None or summary.empty:
+        df = load_df(
+            file_bytes,
+            sheet=sheet_for_file,
+            column_map=None,
+            file_name=file_name,
+        )
+        summary = summarize_all(df)
+
+    return normalize_summary_players(summary)
+
+
+def parse_match_date_from_filename(file_name: str) -> date | None:
+    normalized_name = file_name.replace("\\", "/")
+    match = re.search(r"(\d{4}-\d{2}-\d{2})", normalized_name)
+    if not match:
+        return None
+    try:
+        return date.fromisoformat(match.group(1))
+    except ValueError:
+        return None
 
 files_to_process = []
 sheet_names_by_file = {}
@@ -246,7 +371,6 @@ with st.sidebar:
     else:
         uploaded = st.file_uploader(
             "Drag & Drop Folder with SwingVision Files Here",
-            type=["xlsx", "xls", "xlsm", "csv"],
             accept_multiple_files="directory",
         )
         files_to_process = uploaded if uploaded else []
@@ -293,7 +417,7 @@ with st.sidebar:
 
             if is_excel:
                 try:
-                    sheet_names_by_file[file_name] = get_excel_sheet_names(file_bytes, file_name)
+                    sheet_names_by_file[file_name] = cached_excel_sheet_names(file_bytes, file_name)
                 except DataLoadError:
                     invalid_excel_files.append(file_name)
                     continue
@@ -341,6 +465,12 @@ with st.sidebar:
     else:
         output_type = "csv"
 
+    performance_mode = st.toggle(
+        "Performance mode (faster)",
+        value=False,
+        help="Speeds up interactions by using lighter table rendering and hiding charts.",
+    )
+
 
 def render_metrics(summary: pd.DataFrame) -> None:
     st.subheader("Key Metrics")
@@ -380,7 +510,7 @@ def render_metrics(summary: pd.DataFrame) -> None:
     st.dataframe(styled, width="stretch")
 
 
-def render_table(summary: pd.DataFrame) -> None:
+def render_table(summary: pd.DataFrame, fast_mode: bool = False) -> None:
     st.subheader("Full Serve Summary")
     ordered = [
         "First Serve In",
@@ -393,6 +523,20 @@ def render_table(summary: pd.DataFrame) -> None:
         "Second Serve Win %",
     ]
     display = summary.reindex(columns=[col for col in ordered if col in summary.columns])
+    if fast_mode:
+        rounded = display.copy()
+        float_cols = [
+            "Overall First Serve %",
+            "Overall Second Serve %",
+            "First Serve Win %",
+            "Second Serve Win %",
+        ]
+        for col in float_cols:
+            if col in rounded.columns:
+                rounded[col] = rounded[col].round(2)
+        st.dataframe(rounded, width="stretch")
+        return
+
     formatters = {
         "Overall First Serve %": "{:.2f}",
         "Overall Second Serve %": "{:.2f}",
@@ -413,7 +557,11 @@ def render_table(summary: pd.DataFrame) -> None:
     st.dataframe(styled, width="stretch")
 
 
-def render_charts(summary: pd.DataFrame) -> None:
+def render_charts(summary: pd.DataFrame, fast_mode: bool = False) -> None:
+    if fast_mode:
+        st.caption("Charts are hidden in Performance mode for faster interaction.")
+        return
+
     st.subheader("Serve Win % by Player")
     win_long = summary.reset_index().melt(
         id_vars="Player",
@@ -505,44 +653,25 @@ if files_to_process:
     try:
         with st.spinner("Analyzing uploaded data..."):
             summaries = []
+            summaries_by_file = {}
             for file in files_to_process:
                 file_name = file.name
                 file_bytes = file.getvalue()
-                lower_name = file_name.lower()
-                is_excel = lower_name.endswith(EXCEL_EXTENSIONS)
-                sheet_names = sheet_names_by_file.get(file_name, []) if is_excel else []
-
-                summary = None
-                if is_excel and "Stats" in sheet_names:
-                    summary = summarize_from_stats(file_bytes, file_name=file_name)
-
-                    if summary is not None and not summary.empty:
-                        attempt_cols = ["First Serve Attempts", "Second Serve Attempts"]
-                        if all(col in summary.columns for col in attempt_cols):
-                            total_attempts = summary[attempt_cols].to_numpy().sum()
-                            if total_attempts == 0:
-                                summary = None
-
-                if summary is None or summary.empty:
-                    column_map_to_use = column_map if column_map else None
-                    sheet_for_file = default_sheet_by_file.get(file_name, sheet_name)
-                    df = load_df(
-                        file_bytes,
-                        sheet=sheet_for_file,
-                        column_map=column_map_to_use,
-                        file_name=file_name,
-                    )
-                    summary = summarize_all(df)
-
-                summary = normalize_summary_players(summary)
+                sheet_for_file = default_sheet_by_file.get(file_name, sheet_name)
+                summary = cached_file_summary(
+                    file_bytes=file_bytes,
+                    file_name=file_name,
+                    sheet_for_file=sheet_for_file,
+                )
                 summaries.append(summary)
+                summaries_by_file[file_name] = summary
 
-            summary = summaries[0] if len(summaries) == 1 else aggregate_season_summaries(summaries)
-            summary = normalize_summary_players(summary)
+            full_summary = summaries[0] if len(summaries) == 1 else aggregate_season_summaries(summaries)
+            full_summary = normalize_summary_players(full_summary)
 
-        available_players = sorted(map(str, summary.index.tolist()))
+        available_players = sorted(map(str, full_summary.index.tolist()))
         if len(available_players) == 1:
-            filtered_summary = summary.loc[[available_players[0]]]
+            selected_players = [available_players[0]]
         else:
             view_mode = st.radio(
                 "View mode",
@@ -557,7 +686,7 @@ if files_to_process:
                     options=available_players,
                     index=0,
                 )
-                filtered_summary = summary.loc[[selected_player]]
+                selected_players = [selected_player]
             else:
                 default_compare = available_players[: min(4, len(available_players))]
                 selected_players = st.multiselect(
@@ -570,11 +699,155 @@ if files_to_process:
                 if not selected_players:
                     st.warning("Please select at least one player to view stats.")
                     st.stop()
-                filtered_summary = summary.loc[selected_players]
+
+        eligible_files = sorted(
+            [
+                file_name
+                for file_name, file_summary in summaries_by_file.items()
+                if any(player in file_summary.index for player in selected_players)
+            ]
+        )
+
+        if not eligible_files:
+            st.warning("No files found for the selected player(s).")
+            st.stop()
+
+        parsed_dates_by_file = {file_name: parse_match_date_from_filename(file_name) for file_name in eligible_files}
+        dated_files = [file_name for file_name in eligible_files if parsed_dates_by_file[file_name] is not None]
+        undated_files = [file_name for file_name in eligible_files if parsed_dates_by_file[file_name] is None]
+
+        files_after_date_filter = list(eligible_files)
+        if dated_files:
+            date_mode = st.radio(
+                "Date filter",
+                ["All dates", "Last 7 days", "Last 30 days", "Custom range"],
+                index=0,
+                horizontal=True,
+            )
+
+            include_undated = st.checkbox(
+                "Include undated files",
+                value=True,
+                help="Keep files whose names do not include a YYYY-MM-DD date.",
+            )
+
+            date_values = [parsed_dates_by_file[file_name] for file_name in dated_files]
+            min_date = min(date_values)
+            max_date = max(date_values)
+            start_date = min_date
+            end_date = max_date
+
+            if date_mode == "Last 7 days":
+                end_date = date.today()
+                start_date = end_date - timedelta(days=6)
+            elif date_mode == "Last 30 days":
+                end_date = date.today()
+                start_date = end_date - timedelta(days=29)
+            elif date_mode == "Custom range":
+                selected_range = st.date_input(
+                    "Match date range",
+                    value=(min_date, max_date),
+                    min_value=min_date,
+                    max_value=max_date,
+                )
+                if isinstance(selected_range, tuple) and len(selected_range) == 2:
+                    start_date, end_date = selected_range
+
+            filtered_dated_files = [
+                file_name
+                for file_name in dated_files
+                if start_date <= parsed_dates_by_file[file_name] <= end_date
+            ]
+
+            files_after_date_filter = sorted(
+                filtered_dated_files + (undated_files if include_undated else [])
+            )
+
+            st.caption(
+                f"Date filter keeps {len(files_after_date_filter)} of {len(eligible_files)} file(s)."
+            )
+        else:
+            st.caption("No dates detected in filenames, so all eligible files are included.")
+
+        if not files_after_date_filter:
+            st.warning("No files match the selected date window.")
+            st.stop()
+
+        selection_key = "selected_files_for_players"
+        prev_options_key = "selected_files_options"
+        if (
+            selection_key not in st.session_state
+            or prev_options_key not in st.session_state
+            or st.session_state[prev_options_key] != files_after_date_filter
+        ):
+            st.session_state[selection_key] = files_after_date_filter
+            st.session_state[prev_options_key] = files_after_date_filter
+
+        st.caption("Include or exclude files for the selected player(s).")
+        action_col1, action_col2 = st.columns(2)
+        if action_col1.button("Select all files"):
+            st.session_state[selection_key] = files_after_date_filter
+        if action_col2.button("Clear all files"):
+            st.session_state[selection_key] = []
+
+        st.session_state[selection_key] = [
+            file_name
+            for file_name in st.session_state.get(selection_key, files_after_date_filter)
+            if file_name in files_after_date_filter
+        ]
+
+        base_labels = {
+            file_name: (
+                parsed_dates_by_file[file_name].isoformat()
+                if parsed_dates_by_file[file_name] is not None
+                else "Undated"
+            )
+            for file_name in files_after_date_filter
+        }
+        label_counts = {}
+        for label in base_labels.values():
+            label_counts[label] = label_counts.get(label, 0) + 1
+
+        seen_labels = {}
+        display_labels = {}
+        for file_name in files_after_date_filter:
+            label = base_labels[file_name]
+            if label_counts[label] == 1:
+                display_labels[file_name] = label
+            else:
+                seen_labels[label] = seen_labels.get(label, 0) + 1
+                display_labels[file_name] = f"{label} ({seen_labels[label]})"
+
+        selected_files = st.multiselect(
+            "Included files",
+            options=files_after_date_filter,
+            key=selection_key,
+            format_func=lambda file_name: display_labels.get(file_name, file_name),
+            help="All files are selected by default. Deselect any match you want to leave out.",
+        )
+
+        if not selected_files:
+            st.warning("Please select at least one file to view stats.")
+            st.stop()
+
+        selected_summaries = [summaries_by_file[file_name] for file_name in selected_files]
+        combined_summary = (
+            selected_summaries[0]
+            if len(selected_summaries) == 1
+            else aggregate_season_summaries(selected_summaries)
+        )
+        combined_summary = normalize_summary_players(combined_summary)
+
+        players_after_file_filter = [player for player in selected_players if player in combined_summary.index]
+        if not players_after_file_filter:
+            st.warning("Selected file set does not contain the selected player(s).")
+            st.stop()
+
+        filtered_summary = combined_summary.loc[players_after_file_filter]
 
         render_metrics(filtered_summary)
-        render_table(filtered_summary)
-        render_charts(filtered_summary)
+        render_table(filtered_summary, fast_mode=performance_mode)
+        render_charts(filtered_summary, fast_mode=performance_mode)
 
         download_data, filename = export_summary_bytes(filtered_summary, output_type)
         st.download_button(
