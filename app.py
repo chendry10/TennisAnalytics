@@ -70,24 +70,35 @@ html, body, [class*="css"] {
     background-color: #0b1210;
 }
 
-[data-testid="stHeader"] *,
-[data-testid="stHeader"] button,
-[data-testid="stHeader"] a,
-[data-testid="stHeader"] svg,
-[data-testid="stHeader"] path,
-[data-testid="stHeader"] span,
-[data-testid="stHeader"] [data-testid="stToolbar"] *,
-[data-testid="stHeader"] [data-testid="stToolbar"] button,
-[data-testid="stHeader"] [data-testid="stToolbar"] svg,
-[data-testid="stHeader"] [data-testid="stToolbar"] path {
-    color: #ffffff !important;
-    fill: #ffffff !important;
-    stroke: #ffffff !important;
+[data-testid="stToolbarActions"] button,
+[data-testid="stToolbarActions"] button span,
+[data-testid="stToolbarActions"] button svg,
+[data-testid="stToolbarActions"] button path,
+[data-testid="stToolbarActions"] [data-testid="stIconMaterial"],
+#MainMenu button,
+#MainMenu button svg,
+#MainMenu button path {
+    color: #f7fbf9 !important;
+    fill: #f7fbf9 !important;
+    stroke: #f7fbf9 !important;
     opacity: 1 !important;
 }
 
-[data-testid="stHeader"] [data-testid="stToolbar"] button:hover,
-[data-testid="stHeader"] button:hover {
+[data-testid="stToolbarActions"] button,
+#MainMenu button {
+    background: transparent !important;
+    background-color: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+}
+
+[data-testid="stToolbarActions"] button:hover,
+[data-testid="stToolbarActions"] button:hover span,
+[data-testid="stToolbarActions"] button:hover svg,
+[data-testid="stToolbarActions"] button:hover path,
+#MainMenu button:hover,
+#MainMenu button:hover svg,
+#MainMenu button:hover path {
     color: var(--accent) !important;
     fill: var(--accent) !important;
     stroke: var(--accent) !important;
