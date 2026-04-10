@@ -70,12 +70,17 @@ html, body, [class*="css"] {
     background-color: #0b1210;
 }
 
+[data-testid="stToolbarActions"],
+[data-testid="stToolbarActions"] *,
 [data-testid="stToolbarActions"] button,
-[data-testid="stToolbarActions"] button span,
-[data-testid="stToolbarActions"] button svg,
-[data-testid="stToolbarActions"] button path,
+[data-testid="stToolbarActions"] a,
+[data-testid="stToolbarActions"] span,
+[data-testid="stToolbarActions"] svg,
+[data-testid="stToolbarActions"] path,
+[data-testid="stToolbarActions"] img,
 [data-testid="stToolbarActions"] [data-testid="stIconMaterial"],
 #MainMenu button,
+#MainMenu button *,
 #MainMenu button svg,
 #MainMenu button path {
     color: #f7fbf9 !important;
@@ -84,24 +89,50 @@ html, body, [class*="css"] {
     opacity: 1 !important;
 }
 
+[data-testid="stToolbarActions"] img,
+[data-testid="stToolbarActions"] svg {
+    filter: brightness(0) invert(1) !important;
+}
+
 [data-testid="stToolbarActions"] button,
+[data-testid="stToolbarActions"] a,
 #MainMenu button {
     background: transparent !important;
     background-color: transparent !important;
     border: 0 !important;
     box-shadow: none !important;
+    outline: none !important;
 }
 
 [data-testid="stToolbarActions"] button:hover,
+[data-testid="stToolbarActions"] a:hover,
 [data-testid="stToolbarActions"] button:hover span,
 [data-testid="stToolbarActions"] button:hover svg,
 [data-testid="stToolbarActions"] button:hover path,
+[data-testid="stToolbarActions"] a:hover svg,
+[data-testid="stToolbarActions"] a:hover path,
 #MainMenu button:hover,
+#MainMenu button:focus,
+#MainMenu button:active,
 #MainMenu button:hover svg,
-#MainMenu button:hover path {
+#MainMenu button:hover path,
+#MainMenu button:focus svg,
+#MainMenu button:focus path,
+#MainMenu button:active svg,
+#MainMenu button:active path {
     color: var(--accent) !important;
     fill: var(--accent) !important;
     stroke: var(--accent) !important;
+}
+
+#MainMenu,
+#MainMenu button,
+#MainMenu button:hover,
+#MainMenu button:focus,
+#MainMenu button:active {
+    background: transparent !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
 }
 
 .block-container {
