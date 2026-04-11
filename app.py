@@ -631,6 +631,7 @@ def render_grouped_bar_chart(
     metric_keys: list[str],
     title: str,
     color_sequence: list[str],
+    container=None,
 ) -> None:
     keys = [key for key in metric_keys if key in summary.columns]
     if not keys:
@@ -669,7 +670,8 @@ def render_grouped_bar_chart(
         legend_title_text="",
         title=title,
     )
-    st.plotly_chart(chart, width="stretch")
+    target = container if container is not None else st
+    target.plotly_chart(chart, width="stretch")
 
 
 def render_player_group_chart(
@@ -677,6 +679,7 @@ def render_player_group_chart(
     metric_keys: list[str],
     title: str,
     category_order: list[str] | None = None,
+    container=None,
 ) -> None:
     keys = [key for key in metric_keys if key in summary.columns]
     if not keys:
@@ -712,91 +715,120 @@ def render_player_group_chart(
         legend_title_text="",
         title=title,
     )
-    st.plotly_chart(chart, width="stretch")
+    target = container if container is not None else st
+    target.plotly_chart(chart, width="stretch")
 
 
 def render_charts(summary: pd.DataFrame) -> None:
-    render_grouped_bar_chart(
-        summary,
-        [
-            "First Serve Attempts",
-            "First Serve In",
-            "Second Serve Attempts",
-            "Second Serve In",
-        ],
-        title="Serve Volume",
-        color_sequence=["#00c2ff", "#7ae9ff", "#18a66c", "#9be564"],
-    )
-    render_grouped_bar_chart(
-        summary,
-        ["First Serve Wins", "Second Serve Wins", "Double Faults"],
-        title="Serve Outcomes",
-        color_sequence=["#d6ff3d", "#5b8cff", "#ff6f61"],
-    )
-    render_grouped_bar_chart(
-        summary,
-        [
-            "Overall First Serve %",
-            "First Serve Win %",
-            "Overall Second Serve %",
-            "Second Serve Win %",
-            "Double Fault Rate",
-        ],
-        title="Serve Rates",
-        color_sequence=["#00c2ff", "#d6ff3d", "#18a66c", "#9be564", "#ff6f61"],
-    )
-    render_grouped_bar_chart(
-        summary,
-        [
-            "First Return Attempts",
-            "First Return In",
-            "Second Return Attempts",
-            "Second Return In",
-        ],
-        title="Return Volume",
-        color_sequence=["#ff6f61", "#ff9f80", "#ffb347", "#ffd166"],
-    )
-    render_grouped_bar_chart(
-        summary,
-        ["First Return Wins", "Second Return Wins"],
-        title="Return Wins",
-        color_sequence=["#d1495b", "#f28482"],
-    )
-    render_grouped_bar_chart(
-        summary,
-        ["First Return In %", "First Return Win %", "Second Return In %", "Second Return Win %"],
-        title="Return Rates",
-        color_sequence=["#ff6f61", "#ffb347", "#ffd166", "#d1495b"],
-    )
+    rally_keys = [f"{bucket.replace(' ', '_').replace('+', 'plus')}_Win%" for bucket in POINT_LENGTH_BUCKETS]
+    chart_specs = [
+        {
+            "renderer": render_grouped_bar_chart,
+            "metric_keys": [
+                "First Serve Attempts",
+                "First Serve In",
+                "Second Serve Attempts",
+                "Second Serve In",
+            ],
+            "title": "Serve Volume",
+            "color_sequence": ["#00c2ff", "#7ae9ff", "#18a66c", "#9be564"],
+        },
+        {
+            "renderer": render_grouped_bar_chart,
+            "metric_keys": ["First Serve Wins", "Second Serve Wins", "Double Faults"],
+            "title": "Serve Outcomes",
+            "color_sequence": ["#d6ff3d", "#5b8cff", "#ff6f61"],
+        },
+        {
+            "renderer": render_grouped_bar_chart,
+            "metric_keys": [
+                "Overall First Serve %",
+                "First Serve Win %",
+                "Overall Second Serve %",
+                "Second Serve Win %",
+                "Double Fault Rate",
+            ],
+            "title": "Serve Rates",
+            "color_sequence": ["#00c2ff", "#d6ff3d", "#18a66c", "#9be564", "#ff6f61"],
+        },
+        {
+            "renderer": render_grouped_bar_chart,
+            "metric_keys": [
+                "First Return Attempts",
+                "First Return In",
+                "Second Return Attempts",
+                "Second Return In",
+            ],
+            "title": "Return Volume",
+            "color_sequence": ["#ff6f61", "#ff9f80", "#ffb347", "#ffd166"],
+        },
+        {
+            "renderer": render_grouped_bar_chart,
+            "metric_keys": ["First Return Wins", "Second Return Wins"],
+            "title": "Return Wins",
+            "color_sequence": ["#d1495b", "#f28482"],
+        },
+        {
+            "renderer": render_grouped_bar_chart,
+            "metric_keys": ["First Return In %", "First Return Win %", "Second Return In %", "Second Return Win %"],
+            "title": "Return Rates",
+            "color_sequence": ["#ff6f61", "#ffb347", "#ffd166", "#d1495b"],
+        },
+    ]
 
     if any(key in summary.columns for key in TRANSITION_TABLE_KEYS):
-        render_grouped_bar_chart(
-            summary,
+        chart_specs.extend(
             [
-                "Serve +1 Attempts",
-                "Serve +1 In",
-                "Serve +1 Wins",
-                "Return +1 Attempts",
-                "Return +1 In",
-                "Return +1 Wins",
-            ],
-            title="Transition Volume",
-            color_sequence=["#18a66c", "#4ed49a", "#9be564", "#00c2ff", "#5fd8ff", "#5b8cff"],
-        )
-        render_grouped_bar_chart(
-            summary,
-            ["Serve +1 In %", "Serve +1 Win %", "Return +1 In %", "Return +1 Win %"],
-            title="Transition Rates",
-            color_sequence=["#18a66c", "#9be564", "#00c2ff", "#5b8cff"],
+                {
+                    "renderer": render_grouped_bar_chart,
+                    "metric_keys": [
+                        "Serve +1 Attempts",
+                        "Serve +1 In",
+                        "Serve +1 Wins",
+                        "Return +1 Attempts",
+                        "Return +1 In",
+                        "Return +1 Wins",
+                    ],
+                    "title": "Transition Volume",
+                    "color_sequence": ["#18a66c", "#4ed49a", "#9be564", "#00c2ff", "#5fd8ff", "#5b8cff"],
+                },
+                {
+                    "renderer": render_grouped_bar_chart,
+                    "metric_keys": ["Serve +1 In %", "Serve +1 Win %", "Return +1 In %", "Return +1 Win %"],
+                    "title": "Transition Rates",
+                    "color_sequence": ["#18a66c", "#9be564", "#00c2ff", "#5b8cff"],
+                },
+            ]
         )
 
-    rally_keys = [f"{bucket.replace(' ', '_').replace('+', 'plus')}_Win%" for bucket in POINT_LENGTH_BUCKETS]
-    render_player_group_chart(
-        summary,
-        rally_keys,
-        title="Win % by Rally Length",
-        category_order=[metric_label(key) for key in rally_keys],
+    chart_specs.append(
+        {
+            "renderer": render_player_group_chart,
+            "metric_keys": rally_keys,
+            "title": "Win % by Rally Length",
+            "category_order": [metric_label(key) for key in rally_keys],
+        }
     )
+
+    for offset in range(0, len(chart_specs), 2):
+        columns = st.columns(2)
+        for idx, spec in enumerate(chart_specs[offset: offset + 2]):
+            if spec["renderer"] is render_grouped_bar_chart:
+                render_grouped_bar_chart(
+                    summary,
+                    spec["metric_keys"],
+                    title=spec["title"],
+                    color_sequence=spec["color_sequence"],
+                    container=columns[idx],
+                )
+            else:
+                render_player_group_chart(
+                    summary,
+                    spec["metric_keys"],
+                    title=spec["title"],
+                    category_order=spec.get("category_order"),
+                    container=columns[idx],
+                )
 
 
 def format_timeline_axis_label(match_date: date | None, order: int) -> str:
@@ -845,11 +877,7 @@ def render_timeline_view(
         st.info("Select at least one metric to draw the timeline.")
         return
 
-    annotate_matches = st.checkbox(
-        "Show match annotations",
-        value=len(selected_files) <= 8,
-        help="Add vertical match callouts so the overlay stays tied to specific files.",
-    )
+    annotate_matches = True
     st.caption("Color identifies the player. Line style identifies the selected metric.")
 
     timeline_rows = []
