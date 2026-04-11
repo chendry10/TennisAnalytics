@@ -1,7 +1,7 @@
 import hashlib
-import html
 import io
 import logging
+import json
 import re
 from datetime import date, timedelta
 from pathlib import Path
@@ -205,12 +205,28 @@ div[data-testid="stMetricValue"] {
     border: 1px solid rgba(255,255,255,0.18) !important;
 }
 
-.stFileUploader [data-testid="stFileUploaderFileName"],
-.stFileUploader [data-testid="stFileUploaderFileName"] span,
-.stFileUploader [data-testid="stFileUploaderFileName"] small,
-.stFileUploader [data-testid="stFileUploaderFileName"] svg,
-.stFileUploader [data-testid="stFileUploaderFileName"] path,
-.stFileUploader [data-testid="stFileUploaderFileName"] div,
+[data-testid="stFileUploaderFile"] {
+    background: var(--card) !important;
+    border: 1px solid rgba(255,255,255,0.10) !important;
+    border-radius: 12px !important;
+}
+
+[data-testid="stFileUploaderFile"] *,
+[data-testid="stFileUploaderFile"] span,
+[data-testid="stFileUploaderFile"] small,
+[data-testid="stFileUploaderFile"] svg,
+[data-testid="stFileUploaderFile"] path,
+[data-testid="stFileUploaderFile"] button {
+    color: var(--ink) !important;
+    fill: var(--ink) !important;
+}
+
+[data-testid="stFileUploaderFile"] button:hover svg,
+[data-testid="stFileUploaderFile"] button:hover path {
+    color: #ff6b6b !important;
+    fill: #ff6b6b !important;
+}
+
 .stFileUploader [data-testid="stFileUploaderDropzone"] svg,
 .stFileUploader [data-testid="stFileUploaderDropzone"] path,
 .stFileUploader [data-testid="stFileUploaderDropzone"] {
@@ -218,51 +234,11 @@ div[data-testid="stMetricValue"] {
     fill: var(--ink) !important;
 }
 
-.stFileUploader [data-testid="stFileUploaderFileName"] * {
-    color: var(--ink) !important;
-    fill: var(--ink) !important;
-}
-
-.stFileUploader [data-testid="stFileUploaderFileName"] {
-    display: none !important;
-}
-
-[data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] + div,
-[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"],
-[data-testid="stFileUploader"] [data-testid="stFileUploaderDeleteBtn"],
-.stFileUploader ul,
-.stFileUploader li {
-    display: none !important;
-    visibility: hidden !important;
-    height: 0 !important;
-    min-height: 0 !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    overflow: hidden !important;
-}
-
 .stFileUploader small,
 .stFileUploader p,
 .stFileUploader span {
     color: var(--ink) !important;
     font-size: 1rem !important;
-}
-
-.uploaded-match-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.45rem;
-    margin-top: 0.25rem;
-}
-
-.uploaded-match-pill {
-    background: #101816;
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 12px;
-    color: #f4f7f6;
-    font-size: 0.98rem;
-    font-weight: 600;
-    padding: 0.55rem 0.75rem;
 }
 
 section[data-testid="stSidebar"] {
@@ -571,17 +547,61 @@ def build_date_display_labels(file_names: list[str]) -> dict[str, str]:
     return display_labels
 
 
-def render_uploaded_matches_preview(files: list) -> None:
+def inject_filename_labels(files: list) -> None:
+    """Inject JS that replaces native uploader filenames with date labels."""
     if not files:
         return
+    import streamlit.components.v1 as components
 
-    display_labels = build_date_display_labels([file.name for file in files])
-    pills = "".join(
-        f'<div class="uploaded-match-pill" title="{html.escape(file.name)}">{html.escape(display_labels[file.name])}</div>'
-        for file in files
-    )
-    st.caption("Uploaded matches")
-    st.markdown(f'<div class="uploaded-match-list">{pills}</div>', unsafe_allow_html=True)
+    display_labels = build_date_display_labels([f.name for f in files])
+    mapping = json.dumps(display_labels)
+    js = f"""
+<script>
+(function() {{
+    var mapping = {mapping};
+    function replaceLabels() {{
+        var doc = parent.document;
+        if (!doc) return;
+        var items = doc.querySelectorAll('[data-testid="stFileUploaderFile"]');
+        items.forEach(function(item) {{
+            if (item.getAttribute('data-replaced')) return;
+            var nameEl = item.querySelector('.stFileUploaderFileName');
+            if (!nameEl) return;
+            var txt = nameEl.textContent.trim();
+            if (!txt) return;
+            // Exact match first
+            if (mapping.hasOwnProperty(txt)) {{
+                nameEl.textContent = mapping[txt];
+                nameEl.title = txt;
+                nameEl.style.overflow = 'visible';
+                nameEl.style.textOverflow = 'clip';
+                nameEl.style.whiteSpace = 'normal';
+                item.setAttribute('data-replaced', '1');
+            }}
+            // Hide file size
+            var parent2 = nameEl.parentElement;
+            if (parent2) {{
+                var children = parent2.children;
+                for (var c = 0; c < children.length; c++) {{
+                    if (children[c] !== nameEl && /^\\d/.test(children[c].textContent.trim())) {{
+                        children[c].style.display = 'none';
+                    }}
+                }}
+            }}
+        }});
+    }}
+    replaceLabels();
+    var observer = new MutationObserver(function() {{ replaceLabels(); }});
+    if (parent.document.body) {{
+        observer.observe(parent.document.body, {{childList: true, subtree: true}});
+    }}
+    setTimeout(replaceLabels, 300);
+    setTimeout(replaceLabels, 800);
+    setTimeout(replaceLabels, 1500);
+}})();
+</script>
+"""
+    components.html(js, height=0, width=0)
 
 files_to_process = []
 sheet_names_by_file = {}
@@ -685,7 +705,7 @@ with st.sidebar:
             st.error("No valid files found to analyze. Please upload at least one valid SwingVision file.")
             st.stop()
 
-        render_uploaded_matches_preview(files_to_process)
+        inject_filename_labels(files_to_process)
 
         if is_excel_any:
             example_file = files_to_process[0]
