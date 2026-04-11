@@ -725,23 +725,6 @@ def render_charts(summary: pd.DataFrame) -> None:
         {
             "renderer": render_grouped_bar_chart,
             "metric_keys": [
-                "First Serve Attempts",
-                "First Serve In",
-                "Second Serve Attempts",
-                "Second Serve In",
-            ],
-            "title": "Serve Volume",
-            "color_sequence": ["#00c2ff", "#7ae9ff", "#18a66c", "#9be564"],
-        },
-        {
-            "renderer": render_grouped_bar_chart,
-            "metric_keys": ["First Serve Wins", "Second Serve Wins", "Double Faults"],
-            "title": "Serve Outcomes",
-            "color_sequence": ["#d6ff3d", "#5b8cff", "#ff6f61"],
-        },
-        {
-            "renderer": render_grouped_bar_chart,
-            "metric_keys": [
                 "Overall First Serve %",
                 "First Serve Win %",
                 "Overall Second Serve %",
@@ -753,14 +736,15 @@ def render_charts(summary: pd.DataFrame) -> None:
         },
         {
             "renderer": render_grouped_bar_chart,
-            "metric_keys": [
-                "First Return Attempts",
-                "First Return In",
-                "Second Return Attempts",
-                "Second Return In",
-            ],
-            "title": "Return Volume",
-            "color_sequence": ["#ff6f61", "#ff9f80", "#ffb347", "#ffd166"],
+            "metric_keys": ["First Return In %", "First Return Win %", "Second Return In %", "Second Return Win %"],
+            "title": "Return Rates",
+            "color_sequence": ["#ff6f61", "#ffb347", "#ffd166", "#d1495b"],
+        },
+        {
+            "renderer": render_grouped_bar_chart,
+            "metric_keys": ["First Serve Wins", "Second Serve Wins", "Double Faults"],
+            "title": "Serve Outcomes",
+            "color_sequence": ["#d6ff3d", "#5b8cff", "#ff6f61"],
         },
         {
             "renderer": render_grouped_bar_chart,
@@ -768,37 +752,61 @@ def render_charts(summary: pd.DataFrame) -> None:
             "title": "Return Wins",
             "color_sequence": ["#d1495b", "#f28482"],
         },
-        {
-            "renderer": render_grouped_bar_chart,
-            "metric_keys": ["First Return In %", "First Return Win %", "Second Return In %", "Second Return Win %"],
-            "title": "Return Rates",
-            "color_sequence": ["#ff6f61", "#ffb347", "#ffd166", "#d1495b"],
-        },
     ]
 
     if any(key in summary.columns for key in TRANSITION_TABLE_KEYS):
-        chart_specs.extend(
-            [
-                {
-                    "renderer": render_grouped_bar_chart,
-                    "metric_keys": [
-                        "Serve +1 Attempts",
-                        "Serve +1 In",
-                        "Serve +1 Wins",
-                        "Return +1 Attempts",
-                        "Return +1 In",
-                        "Return +1 Wins",
-                    ],
-                    "title": "Transition Volume",
-                    "color_sequence": ["#18a66c", "#4ed49a", "#9be564", "#00c2ff", "#5fd8ff", "#5b8cff"],
-                },
-                {
-                    "renderer": render_grouped_bar_chart,
-                    "metric_keys": ["Serve +1 In %", "Serve +1 Win %", "Return +1 In %", "Return +1 Win %"],
-                    "title": "Transition Rates",
-                    "color_sequence": ["#18a66c", "#9be564", "#00c2ff", "#5b8cff"],
-                },
-            ]
+        chart_specs.insert(
+            2,
+            {
+                "renderer": render_grouped_bar_chart,
+                "metric_keys": ["Serve +1 In %", "Serve +1 Win %", "Return +1 In %", "Return +1 Win %"],
+                "title": "Transition Rates",
+                "color_sequence": ["#18a66c", "#9be564", "#00c2ff", "#5b8cff"],
+            },
+        )
+
+    chart_specs.extend(
+        [
+            {
+                "renderer": render_grouped_bar_chart,
+                "metric_keys": [
+                    "First Serve Attempts",
+                    "First Serve In",
+                    "Second Serve Attempts",
+                    "Second Serve In",
+                ],
+                "title": "Serve Volume",
+                "color_sequence": ["#00c2ff", "#7ae9ff", "#18a66c", "#9be564"],
+            },
+            {
+                "renderer": render_grouped_bar_chart,
+                "metric_keys": [
+                    "First Return Attempts",
+                    "First Return In",
+                    "Second Return Attempts",
+                    "Second Return In",
+                ],
+                "title": "Return Volume",
+                "color_sequence": ["#ff6f61", "#ff9f80", "#ffb347", "#ffd166"],
+            },
+        ]
+    )
+
+    if any(key in summary.columns for key in TRANSITION_TABLE_KEYS):
+        chart_specs.append(
+            {
+                "renderer": render_grouped_bar_chart,
+                "metric_keys": [
+                    "Serve +1 Attempts",
+                    "Serve +1 In",
+                    "Serve +1 Wins",
+                    "Return +1 Attempts",
+                    "Return +1 In",
+                    "Return +1 Wins",
+                ],
+                "title": "Transition Volume",
+                "color_sequence": ["#18a66c", "#4ed49a", "#9be564", "#00c2ff", "#5fd8ff", "#5b8cff"],
+            }
         )
 
     chart_specs.append(
