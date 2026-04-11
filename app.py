@@ -1,4 +1,5 @@
 import hashlib
+import html
 import io
 import logging
 import re
@@ -222,11 +223,32 @@ div[data-testid="stMetricValue"] {
     fill: var(--ink) !important;
 }
 
+.stFileUploader [data-testid="stFileUploaderFileName"] {
+    display: none !important;
+}
+
 .stFileUploader small,
 .stFileUploader p,
 .stFileUploader span {
     color: var(--ink) !important;
     font-size: 1rem !important;
+}
+
+.uploaded-match-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    margin-top: 0.25rem;
+}
+
+.uploaded-match-pill {
+    background: #101816;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 12px;
+    color: #f4f7f6;
+    font-size: 0.98rem;
+    font-weight: 600;
+    padding: 0.55rem 0.75rem;
 }
 
 section[data-testid="stSidebar"] {
@@ -510,6 +532,43 @@ def parse_match_date_from_filename(file_name: str) -> date | None:
     except ValueError:
         return None
 
+
+def build_date_display_labels(file_names: list[str]) -> dict[str, str]:
+    base_labels = {
+        file_name: (
+            parsed_date.isoformat() if (parsed_date := parse_match_date_from_filename(file_name)) is not None else "Undated"
+        )
+        for file_name in file_names
+    }
+    label_counts: dict[str, int] = {}
+    for label in base_labels.values():
+        label_counts[label] = label_counts.get(label, 0) + 1
+
+    seen_labels: dict[str, int] = {}
+    display_labels: dict[str, str] = {}
+    for file_name in file_names:
+        label = base_labels[file_name]
+        if label_counts[label] == 1:
+            display_labels[file_name] = label
+        else:
+            seen_labels[label] = seen_labels.get(label, 0) + 1
+            display_labels[file_name] = f"{label} ({seen_labels[label]})"
+
+    return display_labels
+
+
+def render_uploaded_matches_preview(files: list) -> None:
+    if not files:
+        return
+
+    display_labels = build_date_display_labels([file.name for file in files])
+    pills = "".join(
+        f'<div class="uploaded-match-pill" title="{html.escape(file.name)}">{html.escape(display_labels[file.name])}</div>'
+        for file in files
+    )
+    st.caption("Uploaded matches")
+    st.markdown(f'<div class="uploaded-match-list">{pills}</div>', unsafe_allow_html=True)
+
 files_to_process = []
 sheet_names_by_file = {}
 default_sheet_by_file = {}
@@ -611,6 +670,8 @@ with st.sidebar:
         if not files_to_process:
             st.error("No valid files found to analyze. Please upload at least one valid SwingVision file.")
             st.stop()
+
+        render_uploaded_matches_preview(files_to_process)
 
         if is_excel_any:
             example_file = files_to_process[0]
@@ -1175,27 +1236,7 @@ if files_to_process:
             if file_name in files_after_date_filter
         ]
 
-        base_labels = {
-            file_name: (
-                parsed_dates_by_file[file_name].isoformat()
-                if parsed_dates_by_file[file_name] is not None
-                else "Undated"
-            )
-            for file_name in files_after_date_filter
-        }
-        label_counts = {}
-        for label in base_labels.values():
-            label_counts[label] = label_counts.get(label, 0) + 1
-
-        seen_labels = {}
-        display_labels = {}
-        for file_name in files_after_date_filter:
-            label = base_labels[file_name]
-            if label_counts[label] == 1:
-                display_labels[file_name] = label
-            else:
-                seen_labels[label] = seen_labels.get(label, 0) + 1
-                display_labels[file_name] = f"{label} ({seen_labels[label]})"
+        display_labels = build_date_display_labels(files_after_date_filter)
 
         selected_files = st.multiselect(
             "Included files",
