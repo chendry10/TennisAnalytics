@@ -227,6 +227,20 @@ div[data-testid="stMetricValue"] {
     display: none !important;
 }
 
+[data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] + div,
+[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"],
+[data-testid="stFileUploader"] [data-testid="stFileUploaderDeleteBtn"],
+.stFileUploader ul,
+.stFileUploader li {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+}
+
 .stFileUploader small,
 .stFileUploader p,
 .stFileUploader span {
