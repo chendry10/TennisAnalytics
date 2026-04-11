@@ -390,7 +390,7 @@ st.markdown(
 
 SUPPORTED_EXTENSIONS = (".xlsx", ".xls", ".xlsm", ".csv")
 EXCEL_EXTENSIONS = (".xlsx", ".xls", ".xlsm")
-ANALYSIS_CACHE_VERSION = "2026-04-10-point-facts-v1"
+ANALYSIS_CACHE_VERSION = "2026-04-10-point-facts-v2"
 
 
 def metric_label(metric_key: str) -> str:
@@ -424,6 +424,16 @@ def build_analysis_cache_key(file_bytes: bytes, sheet_for_file: str | int | None
     return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
 
 
+def preferred_sheet_index(sheet_names: list[str]) -> int:
+    for index, sheet_name in enumerate(sheet_names):
+        if str(sheet_name).strip().lower() == "shots":
+            return index
+    for index, sheet_name in enumerate(sheet_names):
+        if str(sheet_name).strip().lower() == "stats":
+            return index
+    return 0
+
+
 @st.cache_data(show_spinner=False)
 def cached_excel_sheet_names(file_bytes: bytes, file_name: str) -> list[str]:
     return get_excel_sheet_names(file_bytes, file_name)
@@ -454,8 +464,9 @@ def cached_file_summary(
         with pd.ExcelFile(io.BytesIO(file_bytes), engine=engine) as xls:
             sheet_names = list(xls.sheet_names)
 
-            shots_sheet = sheet_for_file if sheet_for_file is not None else (
-                "Shots" if "Shots" in sheet_names else 0
+            shots_sheet = next(
+                (name for name in sheet_names if str(name).strip().lower() == "shots"),
+                sheet_for_file if sheet_for_file is not None else 0,
             )
             try:
                 raw_df = validate_and_rename(xls.parse(shots_sheet))
@@ -576,7 +587,7 @@ with st.sidebar:
                 if not sheet_names_by_file[file_name]:
                     st.error(f"No readable sheets found in {file_name}.")
                     st.stop()
-                default_sheet_by_file[file_name] = 1 if len(sheet_names_by_file[file_name]) > 1 else 0
+                default_sheet_by_file[file_name] = preferred_sheet_index(sheet_names_by_file[file_name])
 
             validated_files.append(file)
 
@@ -1200,28 +1211,18 @@ if files_to_process:
 
         filtered_summary = combined_summary.loc[players_after_file_filter]
 
-        analysis_mode_options = ["Summary"]
+        render_metrics(filtered_summary)
+        render_table(filtered_summary)
+        render_charts(filtered_summary)
+
         if len(selected_files) > 1:
-            analysis_mode_options.append("Timeline")
-
-        analysis_mode = st.radio(
-            "Analysis mode",
-            options=analysis_mode_options,
-            index=0,
-            horizontal=True,
-        )
-
-        if analysis_mode == "Timeline":
+            st.markdown("---")
             render_timeline_view(
                 selected_files=selected_files,
                 summaries_by_file=summaries_by_file,
                 selected_players=players_after_file_filter,
                 parsed_dates_by_file=parsed_dates_by_file,
             )
-        else:
-            render_metrics(filtered_summary)
-            render_table(filtered_summary)
-            render_charts(filtered_summary)
 
         download_data, filename = export_summary_bytes(filtered_summary, output_type)
         st.download_button(
