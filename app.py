@@ -626,24 +626,6 @@ with st.sidebar:
     else:
         output_type = "csv"
 
-def render_metric_dataframe(summary: pd.DataFrame, metric_keys: list[str]) -> None:
-    keys = [key for key in metric_keys if key in summary.columns]
-    if not keys:
-        return
-
-    display = summary.reindex(columns=keys).copy()
-    display.columns = [metric_label(key) for key in keys]
-    formatters = {metric_label(key): metric_format_pattern(key) for key in keys}
-    styled = (
-        display.style.format(formatters)
-        .set_table_styles([
-            {"selector": "th", "props": [("color", "#f4f7f6"), ("background", "#0f1715")]},
-            {"selector": "td", "props": [("color", "#f4f7f6"), ("background", "#101816")]},
-        ])
-    )
-    st.dataframe(styled, width="stretch")
-
-
 def render_grouped_bar_chart(
     summary: pd.DataFrame,
     metric_keys: list[str],
@@ -731,24 +713,26 @@ def render_player_group_chart(
         title=title,
     )
     st.plotly_chart(chart, width="stretch")
-def render_table(summary: pd.DataFrame) -> None:
-    st.subheader("Serve Summary")
-    render_metric_dataframe(summary, SERVE_TABLE_KEYS)
-
-    st.subheader("Return Summary")
-    if not any(key in summary.columns for key in RETURN_TABLE_KEYS):
-        st.caption("No return data available.")
-    else:
-        render_metric_dataframe(summary, RETURN_TABLE_KEYS)
-
-    st.subheader("Transition Summary")
-    if not any(key in summary.columns for key in TRANSITION_TABLE_KEYS):
-        st.caption("No serve +1 or return +1 data available.")
-    else:
-        render_metric_dataframe(summary, TRANSITION_TABLE_KEYS)
 
 
 def render_charts(summary: pd.DataFrame) -> None:
+    render_grouped_bar_chart(
+        summary,
+        [
+            "First Serve Attempts",
+            "First Serve In",
+            "Second Serve Attempts",
+            "Second Serve In",
+        ],
+        title="Serve Volume",
+        color_sequence=["#00c2ff", "#7ae9ff", "#18a66c", "#9be564"],
+    )
+    render_grouped_bar_chart(
+        summary,
+        ["First Serve Wins", "Second Serve Wins", "Double Faults"],
+        title="Serve Outcomes",
+        color_sequence=["#d6ff3d", "#5b8cff", "#ff6f61"],
+    )
     render_grouped_bar_chart(
         summary,
         [
@@ -758,21 +742,53 @@ def render_charts(summary: pd.DataFrame) -> None:
             "Second Serve Win %",
             "Double Fault Rate",
         ],
-        title="Serve Profile",
+        title="Serve Rates",
         color_sequence=["#00c2ff", "#d6ff3d", "#18a66c", "#9be564", "#ff6f61"],
     )
     render_grouped_bar_chart(
         summary,
-        ["First Return In %", "First Return Win %", "Second Return In %", "Second Return Win %"],
-        title="Return Profile",
-        color_sequence=["#ff6f61", "#ffb347", "#ffd166", "#d1495b"],
+        [
+            "First Return Attempts",
+            "First Return In",
+            "Second Return Attempts",
+            "Second Return In",
+        ],
+        title="Return Volume",
+        color_sequence=["#ff6f61", "#ff9f80", "#ffb347", "#ffd166"],
     )
     render_grouped_bar_chart(
         summary,
-        ["Serve +1 In %", "Serve +1 Win %", "Return +1 In %", "Return +1 Win %"],
-        title="Transition Profile",
-        color_sequence=["#18a66c", "#9be564", "#00c2ff", "#5b8cff"],
+        ["First Return Wins", "Second Return Wins"],
+        title="Return Wins",
+        color_sequence=["#d1495b", "#f28482"],
     )
+    render_grouped_bar_chart(
+        summary,
+        ["First Return In %", "First Return Win %", "Second Return In %", "Second Return Win %"],
+        title="Return Rates",
+        color_sequence=["#ff6f61", "#ffb347", "#ffd166", "#d1495b"],
+    )
+
+    if any(key in summary.columns for key in TRANSITION_TABLE_KEYS):
+        render_grouped_bar_chart(
+            summary,
+            [
+                "Serve +1 Attempts",
+                "Serve +1 In",
+                "Serve +1 Wins",
+                "Return +1 Attempts",
+                "Return +1 In",
+                "Return +1 Wins",
+            ],
+            title="Transition Volume",
+            color_sequence=["#18a66c", "#4ed49a", "#9be564", "#00c2ff", "#5fd8ff", "#5b8cff"],
+        )
+        render_grouped_bar_chart(
+            summary,
+            ["Serve +1 In %", "Serve +1 Win %", "Return +1 In %", "Return +1 Win %"],
+            title="Transition Rates",
+            color_sequence=["#18a66c", "#9be564", "#00c2ff", "#5b8cff"],
+        )
 
     rally_keys = [f"{bucket.replace(' ', '_').replace('+', 'plus')}_Win%" for bucket in POINT_LENGTH_BUCKETS]
     render_player_group_chart(
@@ -1181,7 +1197,6 @@ if files_to_process:
             )
             st.markdown("---")
 
-        render_table(filtered_summary)
         render_charts(filtered_summary)
 
         download_data, filename = export_summary_bytes(filtered_summary, output_type)
