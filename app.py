@@ -3,6 +3,7 @@ import io
 import logging
 import re
 from datetime import date, timedelta
+from pathlib import Path
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -14,27 +15,27 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from core.analysis import (
-    REQUIRED_COLUMNS,
-    POINT_LENGTH_BUCKETS,
     excel_engine,
     validate_and_rename,
     aggregate_season_summaries,
-    calculate_point_length_outcomes,
-    calculate_return_attempts,
-    calculate_return_in_counts,
-    calculate_return_percentages,
-    calculate_return_win_counts,
-    calculate_return_win_percentages,
     export_summary_bytes,
     get_excel_sheet_names,
-    get_raw_columns,
-    guess_column_map,
     load_df,
     normalize_summary_players,
     summarize_from_stats,
     summarize_all,
 )
+from core.disk_cache import load_cache_entry, save_cache_entry
 from core.errors import DataLoadError, DataValidationError
+from core.metrics import (
+    KEY_METRIC_KEYS,
+    METRIC_DEFINITIONS,
+    POINT_LENGTH_BUCKETS,
+    RETURN_TABLE_KEYS,
+    SERVE_TABLE_KEYS,
+    TIMELINE_METRIC_KEYS,
+    TRANSITION_TABLE_KEYS,
+)
 
 st.set_page_config(
     page_title="CourtSide Analytics",
@@ -389,6 +390,38 @@ st.markdown(
 
 SUPPORTED_EXTENSIONS = (".xlsx", ".xls", ".xlsm", ".csv")
 EXCEL_EXTENSIONS = (".xlsx", ".xls", ".xlsm")
+ANALYSIS_CACHE_VERSION = "2026-04-10-point-facts-v1"
+
+
+def metric_label(metric_key: str) -> str:
+    definition = METRIC_DEFINITIONS.get(metric_key)
+    return definition.label if definition else metric_key
+
+
+def metric_help(metric_key: str) -> str | None:
+    definition = METRIC_DEFINITIONS.get(metric_key)
+    return definition.description if definition else None
+
+
+def metric_format_pattern(metric_key: str) -> str:
+    definition = METRIC_DEFINITIONS.get(metric_key)
+    if definition and definition.kind == "percent":
+        return "{:.1f}%"
+    return "{:.0f}"
+
+
+def metric_axis_title(metric_key: str) -> str:
+    definition = METRIC_DEFINITIONS.get(metric_key)
+    if definition and definition.kind == "percent":
+        return "Percentage"
+    return "Count"
+
+
+def build_analysis_cache_key(file_bytes: bytes, sheet_for_file: str | int | None) -> str:
+    file_hash = hashlib.sha256(file_bytes).hexdigest()
+    sheet_key = "none" if sheet_for_file is None else str(sheet_for_file)
+    raw_key = f"{ANALYSIS_CACHE_VERSION}:{file_hash}:{sheet_key}"
+    return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
 
 
 @st.cache_data(show_spinner=False)
@@ -402,6 +435,11 @@ def cached_file_summary(
     file_name: str,
     sheet_for_file: str | int | None,
 ) -> pd.DataFrame:
+    cache_key = build_analysis_cache_key(file_bytes, sheet_for_file)
+    cached_summary = load_cache_entry(cache_key)
+    if isinstance(cached_summary, pd.DataFrame):
+        return cached_summary
+
     base_name = file_name.replace("\\", "/").split("/")[-1]
     if base_name.startswith("~$"):
         return pd.DataFrame().rename_axis("Player")
@@ -416,22 +454,6 @@ def cached_file_summary(
         with pd.ExcelFile(io.BytesIO(file_bytes), engine=engine) as xls:
             sheet_names = list(xls.sheet_names)
 
-            if "Stats" in sheet_names:
-                logger.info("Using Stats sheet for %s", file_name)
-                stats_df = xls.parse("Stats")
-                settings_df = xls.parse("Settings")
-                summary = summarize_from_stats(
-                    stats_df=stats_df, settings_df=settings_df,
-                )
-
-                if summary is not None and not summary.empty:
-                    attempt_cols = ["First Serve Attempts", "Second Serve Attempts"]
-                    if all(col in summary.columns for col in attempt_cols):
-                        total_attempts = summary[attempt_cols].to_numpy().sum()
-                        if total_attempts == 0:
-                            summary = None
-
-            # Read Shots sheet once for return + point-length stats (or full analysis)
             shots_sheet = sheet_for_file if sheet_for_file is not None else (
                 "Shots" if "Shots" in sheet_names else 0
             )
@@ -441,24 +463,17 @@ def cached_file_summary(
             except Exception:
                 raw_df = None
 
-            if summary is not None and not summary.empty:
-                # Augment Stats-based summary with return + point-length data from raw shots
-                if raw_df is not None and not raw_df.empty:
-                    ret_in = calculate_return_in_counts(raw_df)
-                    ret_att = calculate_return_attempts(raw_df)
-                    ret_pcts = calculate_return_percentages(raw_df)
-                    ret_wins = calculate_return_win_counts(raw_df)
-                    ret_win_pcts = calculate_return_win_percentages(raw_df)
-                    pl_outcomes = calculate_point_length_outcomes(raw_df)
-
-                    for extra in [ret_in, ret_att, ret_pcts, ret_wins, ret_win_pcts, pl_outcomes]:
-                        if not extra.empty:
-                            summary = summary.join(extra, how="left").fillna(0)
-            else:
-                # No Stats sheet or empty stats — compute everything from raw shots
-                logger.info("No Stats sheet for %s, using raw shots", file_name)
-                if raw_df is not None and not raw_df.empty:
-                    summary = summarize_all(raw_df)
+            if raw_df is not None and not raw_df.empty:
+                logger.info("Using point-fact analysis for %s", file_name)
+                summary = summarize_all(raw_df)
+            elif "Stats" in sheet_names:
+                logger.info("Using Stats sheet fallback for %s", file_name)
+                stats_df = xls.parse("Stats")
+                try:
+                    settings_df = xls.parse("Settings")
+                except Exception:
+                    settings_df = None
+                summary = summarize_from_stats(stats_df=stats_df, settings_df=settings_df)
 
     if summary is None or summary.empty:
         logger.warning("Falling back to full load_df for %s", file_name)
@@ -470,7 +485,9 @@ def cached_file_summary(
         )
         summary = summarize_all(df)
 
-    return normalize_summary_players(summary)
+    summary = normalize_summary_players(summary)
+    save_cache_entry(cache_key, summary)
+    return summary
 
 
 def parse_match_date_from_filename(file_name: str) -> date | None:
@@ -601,6 +618,125 @@ with st.sidebar:
 
 
 
+def render_metric_cards(row: pd.Series, metric_keys: list[str], columns_per_row: int = 3) -> None:
+    existing_keys = [key for key in metric_keys if key in row.index]
+    for offset in range(0, len(existing_keys), columns_per_row):
+        keys = existing_keys[offset: offset + columns_per_row]
+        columns = st.columns(columns_per_row)
+        for idx, metric_key in enumerate(keys):
+            columns[idx].metric(
+                metric_label(metric_key),
+                metric_format_pattern(metric_key).format(float(row.get(metric_key, 0))),
+            )
+
+
+def render_metric_dataframe(summary: pd.DataFrame, metric_keys: list[str]) -> None:
+    keys = [key for key in metric_keys if key in summary.columns]
+    if not keys:
+        return
+
+    display = summary.reindex(columns=keys).copy()
+    display.columns = [metric_label(key) for key in keys]
+    formatters = {metric_label(key): metric_format_pattern(key) for key in keys}
+    styled = (
+        display.style.format(formatters)
+        .set_table_styles([
+            {"selector": "th", "props": [("color", "#f4f7f6"), ("background", "#0f1715")]},
+            {"selector": "td", "props": [("color", "#f4f7f6"), ("background", "#101816")]},
+        ])
+    )
+    st.dataframe(styled, width="stretch")
+
+
+def render_grouped_bar_chart(
+    summary: pd.DataFrame,
+    metric_keys: list[str],
+    title: str,
+    color_sequence: list[str],
+) -> None:
+    keys = [key for key in metric_keys if key in summary.columns]
+    if not keys:
+        return
+
+    long_df = summary.reset_index().melt(
+        id_vars="Player",
+        value_vars=keys,
+        var_name="Metric",
+        value_name="Value",
+    )
+    long_df["Metric"] = long_df["Metric"].map(metric_label)
+    chart = px.bar(
+        long_df,
+        x="Player",
+        y="Value",
+        color="Metric",
+        barmode="group",
+        text="Value",
+        color_discrete_sequence=color_sequence,
+    )
+    is_percent = all(
+        METRIC_DEFINITIONS.get(key) and METRIC_DEFINITIONS[key].kind == "percent"
+        for key in keys
+    )
+    chart.update_traces(
+        texttemplate="%{text:.1f}%" if is_percent else "%{text:.0f}",
+        textposition="outside",
+    )
+    chart.update_layout(
+        template="plotly_dark",
+        height=340,
+        margin=dict(l=20, r=20, t=40, b=40),
+        yaxis=dict(title="Percentage" if is_percent else "Count", range=[0, 100] if is_percent else None),
+        xaxis=dict(title=None),
+        legend_title_text="",
+        title=title,
+    )
+    st.plotly_chart(chart, width="stretch")
+
+
+def render_player_group_chart(
+    summary: pd.DataFrame,
+    metric_keys: list[str],
+    title: str,
+    category_order: list[str] | None = None,
+) -> None:
+    keys = [key for key in metric_keys if key in summary.columns]
+    if not keys:
+        return
+
+    long_df = summary.reset_index().melt(
+        id_vars="Player",
+        value_vars=keys,
+        var_name="Metric",
+        value_name="Value",
+    )
+    long_df["Metric"] = long_df["Metric"].map(metric_label)
+    chart = px.bar(
+        long_df,
+        x="Metric",
+        y="Value",
+        color="Player",
+        barmode="group",
+        text="Value",
+        color_discrete_sequence=["#18a66c", "#d6ff3d", "#00c2ff", "#ff6f61"],
+    )
+    chart.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+    xaxis = dict(title=None)
+    if category_order:
+        xaxis["categoryorder"] = "array"
+        xaxis["categoryarray"] = category_order
+    chart.update_layout(
+        template="plotly_dark",
+        height=340,
+        margin=dict(l=20, r=20, t=40, b=40),
+        yaxis=dict(range=[0, 100], title="Percentage"),
+        xaxis=xaxis,
+        legend_title_text="",
+        title=title,
+    )
+    st.plotly_chart(chart, width="stretch")
+
+
 def render_metrics(summary: pd.DataFrame) -> None:
     st.subheader("Key Metrics")
     if summary.empty:
@@ -611,214 +747,140 @@ def render_metrics(summary: pd.DataFrame) -> None:
         player = summary.index[0]
         row = summary.loc[player]
         st.caption(f"Focused view: {player}")
-
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("1st Serve Win %", f"{float(row.get('First Serve Win %', 0)):.1f}%")
-        col2.metric("2nd Serve Win %", f"{float(row.get('Second Serve Win %', 0)):.1f}%")
-        col3.metric("1st Serve In %", f"{float(row.get('Overall First Serve %', 0)):.1f}%")
-        col4.metric("2nd Serve In %", f"{float(row.get('Overall Second Serve %', 0)):.1f}%")
-
-        col5, col6, col7, col8 = st.columns(4)
-        col5.metric("1st Return Win %", f"{float(row.get('First Return Win %', 0)):.1f}%")
-        col6.metric("2nd Return Win %", f"{float(row.get('Second Return Win %', 0)):.1f}%")
-        col7.metric("1st Return In %", f"{float(row.get('First Return In %', 0)):.1f}%")
-        col8.metric("2nd Return In %", f"{float(row.get('Second Return In %', 0)):.1f}%")
+        render_metric_cards(row, KEY_METRIC_KEYS, columns_per_row=3)
         return
 
-    key_cols = [
-        "First Serve Win %",
-        "Second Serve Win %",
-        "Overall First Serve %",
-        "Overall Second Serve %",
-        "First Return Win %",
-        "Second Return Win %",
-        "First Return In %",
-        "Second Return In %",
-    ]
-    compact = summary.reindex(columns=[col for col in key_cols if col in summary.columns]).sort_values(
-        by="First Serve Win %", ascending=False
-    )
+    keys = [key for key in KEY_METRIC_KEYS if key in summary.columns]
+    compact = summary.reindex(columns=keys).sort_values(by="First Serve Win %", ascending=False)
+    compact.columns = [metric_label(key) for key in keys]
     styled = compact.style.format(
-        {
-            "First Serve Win %": "{:.1f}%",
-            "Second Serve Win %": "{:.1f}%",
-            "Overall First Serve %": "{:.1f}%",
-            "Overall Second Serve %": "{:.1f}%",
-            "First Return Win %": "{:.1f}%",
-            "Second Return Win %": "{:.1f}%",
-            "First Return In %": "{:.1f}%",
-            "Second Return In %": "{:.1f}%",
-        }
+        {metric_label(key): metric_format_pattern(key) for key in keys}
     )
     st.dataframe(styled, width="stretch")
 
 
 def render_table(summary: pd.DataFrame) -> None:
-    st.subheader("Full Serve Summary")
-    ordered = [
-        "First Serve In",
-        "First Serve Attempts",
-        "Overall First Serve %",
-        "Second Serve In",
-        "Second Serve Attempts",
-        "Overall Second Serve %",
-        "First Serve Win %",
-        "Second Serve Win %",
-    ]
-    display = summary.reindex(columns=[col for col in ordered if col in summary.columns])
-    formatters = {
-        "Overall First Serve %": "{:.2f}",
-        "Overall Second Serve %": "{:.2f}",
-        "First Serve Win %": "{:.2f}",
-        "Second Serve Win %": "{:.2f}",
-        "First Serve Attempts": "{:.0f}",
-        "Second Serve Attempts": "{:.0f}",
-        "First Serve In": "{:.0f}",
-        "Second Serve In": "{:.0f}",
-    }
-    styled = (
-        display.style.format(formatters)
-        .set_table_styles([
-            {"selector": "th", "props": [("color", "#f4f7f6"), ("background", "#0f1715")]},
-            {"selector": "td", "props": [("color", "#f4f7f6"), ("background", "#101816")]},
-        ])
-    )
-    st.dataframe(styled, width="stretch")
+    st.subheader("Serve Summary")
+    render_metric_dataframe(summary, SERVE_TABLE_KEYS)
 
-    st.subheader("Full Return Summary")
-    return_ordered = [
-        "First Return In",
-        "First Return Attempts",
-        "First Return In %",
-        "Second Return In",
-        "Second Return Attempts",
-        "Second Return In %",
-        "First Return Win %",
-        "Second Return Win %",
-    ]
-    return_display = summary.reindex(columns=[col for col in return_ordered if col in summary.columns])
-    if return_display.empty or return_display.columns.empty:
+    st.subheader("Return Summary")
+    if not any(key in summary.columns for key in RETURN_TABLE_KEYS):
         st.caption("No return data available.")
     else:
-        ret_formatters = {
-            "First Return In %": "{:.2f}",
-            "Second Return In %": "{:.2f}",
-            "First Return Win %": "{:.2f}",
-            "Second Return Win %": "{:.2f}",
-            "First Return Attempts": "{:.0f}",
-            "Second Return Attempts": "{:.0f}",
-            "First Return In": "{:.0f}",
-            "Second Return In": "{:.0f}",
-        }
-        ret_styled = (
-            return_display.style.format(ret_formatters)
-            .set_table_styles([
-                {"selector": "th", "props": [("color", "#f4f7f6"), ("background", "#0f1715")]},
-                {"selector": "td", "props": [("color", "#f4f7f6"), ("background", "#101816")]},
-            ])
-        )
-        st.dataframe(ret_styled, width="stretch")
+        render_metric_dataframe(summary, RETURN_TABLE_KEYS)
+
+    st.subheader("Transition Summary")
+    if not any(key in summary.columns for key in TRANSITION_TABLE_KEYS):
+        st.caption("No serve +1 or return +1 data available.")
+    else:
+        render_metric_dataframe(summary, TRANSITION_TABLE_KEYS)
 
 
 def render_charts(summary: pd.DataFrame) -> None:
-    st.subheader("Overall Serve In % vs Win %")
-    compare_long = summary.reset_index().melt(
-        id_vars="Player",
-        value_vars=[
+    render_grouped_bar_chart(
+        summary,
+        [
             "Overall First Serve %",
             "First Serve Win %",
             "Overall Second Serve %",
             "Second Serve Win %",
+            "Double Fault Rate",
         ],
-        var_name="Serve Metric",
-        value_name="Percentage",
+        title="Serve Profile",
+        color_sequence=["#00c2ff", "#d6ff3d", "#18a66c", "#9be564", "#ff6f61"],
     )
-    compare_chart = px.bar(
-        compare_long,
-        x="Player",
-        y="Percentage",
-        color="Serve Metric",
-        barmode="group",
-        text="Percentage",
-        color_discrete_sequence=["#00c2ff", "#d6ff3d", "#18a66c", "#9be564"],
+    render_grouped_bar_chart(
+        summary,
+        ["First Return In %", "First Return Win %", "Second Return In %", "Second Return Win %"],
+        title="Return Profile",
+        color_sequence=["#ff6f61", "#ffb347", "#ffd166", "#d1495b"],
     )
-    compare_chart.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-    compare_chart.update_layout(
+    render_grouped_bar_chart(
+        summary,
+        ["Serve +1 In %", "Serve +1 Win %", "Return +1 In %", "Return +1 Win %"],
+        title="Transition Profile",
+        color_sequence=["#18a66c", "#9be564", "#00c2ff", "#5b8cff"],
+    )
+
+    rally_keys = [f"{bucket.replace(' ', '_').replace('+', 'plus')}_Win%" for bucket in POINT_LENGTH_BUCKETS]
+    render_player_group_chart(
+        summary,
+        rally_keys,
+        title="Win % by Rally Length",
+        category_order=[metric_label(key) for key in rally_keys],
+    )
+
+
+def render_timeline_view(
+    selected_files: list[str],
+    summaries_by_file: dict[str, pd.DataFrame],
+    selected_players: list[str],
+    parsed_dates_by_file: dict[str, date | None],
+) -> None:
+    st.subheader("Timeline")
+    timeline_metric = st.selectbox(
+        "Timeline metric",
+        options=TIMELINE_METRIC_KEYS,
+        format_func=metric_label,
+        help="Choose a metric to see how it changes across selected matches.",
+    )
+
+    timeline_rows = []
+    for order, file_name in enumerate(selected_files):
+        summary = summaries_by_file[file_name]
+        for player in selected_players:
+            if player not in summary.index or timeline_metric not in summary.columns:
+                continue
+            timeline_rows.append(
+                {
+                    "Order": order,
+                    "File": file_name,
+                    "Match Date": parsed_dates_by_file.get(file_name),
+                    "Player": player,
+                    "Value": float(summary.loc[player, timeline_metric]),
+                }
+            )
+
+    if not timeline_rows:
+        st.info("No timeline data is available for the current selection.")
+        return
+
+    timeline_df = pd.DataFrame(timeline_rows)
+    dated_df = timeline_df.dropna(subset=["Match Date"]).copy()
+    use_dates = not dated_df.empty
+    if use_dates:
+        timeline_df = dated_df.sort_values(["Match Date", "Order", "Player"])
+        x_axis = "Match Date"
+    else:
+        timeline_df = timeline_df.sort_values(["Order", "Player"])
+        timeline_df["Match"] = [f"Match {idx + 1}" for idx in timeline_df["Order"]]
+        x_axis = "Match"
+
+    line_chart = px.line(
+        timeline_df,
+        x=x_axis,
+        y="Value",
+        color="Player",
+        markers=True,
+        hover_data={"File": True, "Value": ":.1f", "Match Date": True},
+        color_discrete_sequence=["#18a66c", "#d6ff3d", "#00c2ff", "#ff6f61"],
+    )
+    definition = METRIC_DEFINITIONS.get(timeline_metric)
+    is_percent = definition is not None and definition.kind == "percent"
+    line_chart.update_layout(
         template="plotly_dark",
-        height=340,
+        height=380,
         margin=dict(l=20, r=20, t=20, b=40),
-        yaxis=dict(range=[0, 100], title="Percentage"),
+        yaxis=dict(title=metric_axis_title(timeline_metric), range=[0, 100] if is_percent else None),
         xaxis=dict(title=None),
         legend_title_text="",
     )
-    st.plotly_chart(compare_chart, width="stretch")
-
-    # ---------- Return charts ----------
-    return_win_vars = [c for c in ["First Return Win %", "Second Return Win %"] if c in summary.columns]
-    if return_win_vars:
-        st.subheader("Return Win % by Player")
-        ret_win_long = summary.reset_index().melt(
-            id_vars="Player",
-            value_vars=return_win_vars,
-            var_name="Return Type",
-            value_name="Win %",
-        )
-        ret_win_chart = px.bar(
-            ret_win_long,
-            x="Player",
-            y="Win %",
-            color="Return Type",
-            barmode="group",
-            text="Win %",
-            color_discrete_sequence=["#ff6f61", "#ffb347"],
-        )
-        ret_win_chart.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-        ret_win_chart.update_layout(
-            template="plotly_dark",
-            height=320,
-            margin=dict(l=20, r=20, t=20, b=40),
-            yaxis=dict(range=[0, 100], title="Win %"),
-            xaxis=dict(title=None),
-            legend_title_text="",
-        )
-        st.plotly_chart(ret_win_chart, width="stretch")
-
-    # ---------- Point-length outcome chart ----------
-    bucket_win_cols = [f"{b.replace(' ', '_').replace('+', 'plus')}_Win%" for b in POINT_LENGTH_BUCKETS]
-    available_bucket_cols = [c for c in bucket_win_cols if c in summary.columns]
-    if available_bucket_cols:
-        st.subheader("Win % by Rally Length")
-        bucket_labels = {
-            "0-4_shots_Win%": "0-4 shots",
-            "5-10_shots_Win%": "5-10 shots",
-            "11plus_shots_Win%": "11+ shots",
-        }
-        pl_long = summary.reset_index().melt(
-            id_vars="Player",
-            value_vars=available_bucket_cols,
-            var_name="Rally Length",
-            value_name="Win %",
-        )
-        pl_long["Rally Length"] = pl_long["Rally Length"].map(bucket_labels)
-        pl_chart = px.bar(
-            pl_long,
-            x="Rally Length",
-            y="Win %",
-            color="Player",
-            barmode="group",
-            text="Win %",
-            color_discrete_sequence=["#18a66c", "#d6ff3d", "#00c2ff", "#ff6f61"],
-        )
-        pl_chart.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-        pl_chart.update_layout(
-            template="plotly_dark",
-            height=340,
-            margin=dict(l=20, r=20, t=20, b=40),
-            yaxis=dict(range=[0, 100], title="Win %"),
-            xaxis=dict(title=None, categoryorder="array", categoryarray=["0-4 shots", "5-10 shots", "11+ shots"]),
-            legend_title_text="",
-        )
-        st.plotly_chart(pl_chart, width="stretch")
+    if is_percent:
+        line_chart.update_traces(hovertemplate="%{fullData.name}<br>%{x}<br>%{y:.1f}%<extra></extra>")
+    st.caption(metric_help(timeline_metric) or "")
+    if use_dates and timeline_df["File"].nunique() < len(selected_files):
+        st.caption("Undated files are omitted from the timeline chart.")
+    st.plotly_chart(line_chart, width="stretch")
 
 
 if files_to_process:
@@ -1033,9 +1095,28 @@ if files_to_process:
 
         filtered_summary = combined_summary.loc[players_after_file_filter]
 
-        render_metrics(filtered_summary)
-        render_table(filtered_summary)
-        render_charts(filtered_summary)
+        analysis_mode_options = ["Summary"]
+        if len(selected_files) > 1:
+            analysis_mode_options.append("Timeline")
+
+        analysis_mode = st.radio(
+            "Analysis mode",
+            options=analysis_mode_options,
+            index=0,
+            horizontal=True,
+        )
+
+        if analysis_mode == "Timeline":
+            render_timeline_view(
+                selected_files=selected_files,
+                summaries_by_file=summaries_by_file,
+                selected_players=players_after_file_filter,
+                parsed_dates_by_file=parsed_dates_by_file,
+            )
+        else:
+            render_metrics(filtered_summary)
+            render_table(filtered_summary)
+            render_charts(filtered_summary)
 
         download_data, filename = export_summary_bytes(filtered_summary, output_type)
         st.download_button(

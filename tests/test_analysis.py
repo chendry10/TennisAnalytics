@@ -5,7 +5,10 @@ import pandas as pd
 
 from core.analysis import (
     aggregate_season_summaries,
+    build_point_facts,
     canonicalize_player_label,
+    calculate_double_fault_stats,
+    calculate_plus_one_stats,
     calculate_point_length_outcomes,
     calculate_return_in_counts,
     calculate_return_attempts,
@@ -449,6 +452,58 @@ class TestAnalysis(unittest.TestCase):
         summary = summarize_all(df)
         self.assertEqual(summary.loc["A", "First Return In"], 0)
         self.assertEqual(summary.loc["A", "First Return Attempts"], 0)
+
+    def test_build_point_facts_captures_double_fault_and_plus_one_sequences(self) -> None:
+        df = pd.DataFrame(
+            [
+                {"Player": "A", "Shot": 1, "Type": "first_serve", "Result": "Out", "Point": "1"},
+                {"Player": "A", "Shot": 2, "Type": "second_serve", "Result": "Net", "Point": "1"},
+                {"Player": "A", "Shot": 1, "Type": "first_serve", "Result": "In", "Point": "2"},
+                {"Player": "B", "Shot": 2, "Type": "first_return", "Result": "In", "Point": "2"},
+                {"Player": "A", "Shot": 3, "Type": "serve_plus_one", "Result": "In", "Point": "2"},
+                {"Player": "B", "Shot": 4, "Type": "return_plus_one", "Result": "Out", "Point": "2"},
+            ]
+        )
+
+        point_facts = build_point_facts(df)
+
+        self.assertEqual(len(point_facts), 2)
+        self.assertTrue(point_facts.loc[point_facts["Point"] == "1", "Double_Fault"].iloc[0])
+        self.assertEqual(point_facts.loc[point_facts["Point"] == "1", "Winner"].iloc[0], "B")
+        self.assertEqual(point_facts.loc[point_facts["Point"] == "1", "Returner"].iloc[0], "B")
+        self.assertTrue(point_facts.loc[point_facts["Point"] == "2", "Serve_Plus_One_Attempted"].iloc[0])
+        self.assertTrue(point_facts.loc[point_facts["Point"] == "2", "Return_Plus_One_Attempted"].iloc[0])
+
+    def test_new_transition_and_double_fault_metrics(self) -> None:
+        df = pd.DataFrame(
+            [
+                {"Player": "A", "Shot": 1, "Type": "first_serve", "Result": "Out", "Point": "1"},
+                {"Player": "A", "Shot": 2, "Type": "second_serve", "Result": "Net", "Point": "1"},
+                {"Player": "A", "Shot": 1, "Type": "first_serve", "Result": "In", "Point": "2"},
+                {"Player": "B", "Shot": 2, "Type": "first_return", "Result": "In", "Point": "2"},
+                {"Player": "A", "Shot": 3, "Type": "serve_plus_one", "Result": "In", "Point": "2"},
+                {"Player": "B", "Shot": 4, "Type": "return_plus_one", "Result": "Out", "Point": "2"},
+                {"Player": "B", "Shot": 1, "Type": "first_serve", "Result": "In", "Point": "3"},
+                {"Player": "A", "Shot": 2, "Type": "first_return", "Result": "In", "Point": "3"},
+                {"Player": "B", "Shot": 3, "Type": "serve_plus_one", "Result": "Out", "Point": "3"},
+            ]
+        )
+
+        summary = summarize_all(df)
+        double_faults = calculate_double_fault_stats(df)
+        serve_plus_one = calculate_plus_one_stats(df, "serve")
+        return_plus_one = calculate_plus_one_stats(df, "return")
+
+        self.assertEqual(double_faults.loc["A", "Double Faults"], 1)
+        self.assertAlmostEqual(double_faults.loc["A", "Double Fault Rate"], 100.0)
+        self.assertEqual(serve_plus_one.loc["A", "Serve +1 Attempts"], 1)
+        self.assertEqual(serve_plus_one.loc["A", "Serve +1 In"], 1)
+        self.assertAlmostEqual(serve_plus_one.loc["A", "Serve +1 Win %"], 100.0)
+        self.assertEqual(return_plus_one.loc["B", "Return +1 Attempts"], 1)
+        self.assertAlmostEqual(return_plus_one.loc["B", "Return +1 In %"], 0.0)
+        self.assertIn("Double Fault Rate", summary.columns)
+        self.assertIn("Serve +1 Win %", summary.columns)
+        self.assertIn("Return +1 Win %", summary.columns)
 
 
 if __name__ == "__main__":
