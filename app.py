@@ -811,6 +811,29 @@ def render_charts(summary: pd.DataFrame) -> None:
     )
 
 
+def format_timeline_axis_label(match_date: date | None, order: int) -> str:
+    if match_date is not None:
+        return match_date.isoformat()
+    return f"Match {order + 1}"
+
+
+def build_timeline_match_label(file_name: str, match_date: date | None, order: int) -> str:
+    stem = Path(file_name).stem
+    cleaned = re.sub(r"^SwingVision-match-", "", stem, flags=re.IGNORECASE)
+    cleaned = cleaned.replace("_", " ")
+    cleaned = re.sub(r"\bat (\d{2})\.(\d{2})(?:\.\d{2})?", r" \1:\2", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -")
+    if not cleaned:
+        cleaned = f"Match {order + 1}"
+    if len(cleaned) > 28:
+        cleaned = cleaned[:25].rstrip() + "..."
+    if match_date is None:
+        return cleaned
+    if cleaned.startswith(match_date.isoformat()):
+        return cleaned
+    return f"{match_date.isoformat()} | {cleaned}"
+
+
 def render_timeline_view(
     selected_files: list[str],
     summaries_by_file: dict[str, pd.DataFrame],
@@ -818,68 +841,150 @@ def render_timeline_view(
     parsed_dates_by_file: dict[str, date | None],
 ) -> None:
     st.subheader("Timeline")
-    timeline_metric = st.selectbox(
-        "Timeline metric",
+    default_metrics = [
+        key
+        for key in ["First Serve Win %", "First Return Win %"]
+        if key in TIMELINE_METRIC_KEYS
+    ]
+    timeline_metrics = st.multiselect(
+        "Timeline metrics",
         options=TIMELINE_METRIC_KEYS,
+        default=default_metrics or TIMELINE_METRIC_KEYS[:1],
         format_func=metric_label,
-        help="Choose a metric to see how it changes across selected matches.",
+        help="Overlay one or more metrics across the selected matches.",
     )
+    if not timeline_metrics:
+        st.info("Select at least one metric to draw the timeline.")
+        return
+
+    annotate_matches = st.checkbox(
+        "Show match annotations",
+        value=len(selected_files) <= 8,
+        help="Add vertical match callouts so the overlay stays tied to specific files.",
+    )
+    st.caption("Color identifies the player. Line style identifies the selected metric.")
 
     timeline_rows = []
+    match_rows = []
     for order, file_name in enumerate(selected_files):
         summary = summaries_by_file[file_name]
+        match_date = parsed_dates_by_file.get(file_name)
+        axis_label = format_timeline_axis_label(match_date, order)
+        match_label = build_timeline_match_label(file_name, match_date, order)
+        match_rows.append(
+            {
+                "Match Order": order + 1,
+                "Axis Label": axis_label,
+                "Match Label": match_label,
+                "File": file_name,
+            }
+        )
         for player in selected_players:
-            if player not in summary.index or timeline_metric not in summary.columns:
+            if player not in summary.index:
                 continue
-            timeline_rows.append(
-                {
-                    "Order": order,
-                    "File": file_name,
-                    "Match Date": parsed_dates_by_file.get(file_name),
-                    "Player": player,
-                    "Value": float(summary.loc[player, timeline_metric]),
-                }
-            )
+            for metric_key in timeline_metrics:
+                if metric_key not in summary.columns:
+                    continue
+                value = summary.loc[player, metric_key]
+                if pd.isna(value):
+                    continue
+                timeline_rows.append(
+                    {
+                        "Match Order": order + 1,
+                        "Axis Label": axis_label,
+                        "Match Label": match_label,
+                        "File": file_name,
+                        "Match Date": match_date.isoformat() if match_date is not None else "Undated",
+                        "Player": player,
+                        "Metric": metric_label(metric_key),
+                        "Metric Key": metric_key,
+                        "Series": f"{player} | {metric_label(metric_key)}",
+                        "Value": float(value),
+                    }
+                )
 
     if not timeline_rows:
         st.info("No timeline data is available for the current selection.")
         return
 
-    timeline_df = pd.DataFrame(timeline_rows)
-    dated_df = timeline_df.dropna(subset=["Match Date"]).copy()
-    use_dates = not dated_df.empty
-    if use_dates:
-        timeline_df = dated_df.sort_values(["Match Date", "Order", "Player"])
-        x_axis = "Match Date"
-    else:
-        timeline_df = timeline_df.sort_values(["Order", "Player"])
-        timeline_df["Match"] = [f"Match {idx + 1}" for idx in timeline_df["Order"]]
-        x_axis = "Match"
+    timeline_df = pd.DataFrame(timeline_rows).sort_values(["Match Order", "Player", "Metric"])
+    match_df = pd.DataFrame(match_rows).drop_duplicates(subset=["Match Order"])
+
+    metric_kinds = {
+        METRIC_DEFINITIONS[metric_key].kind
+        for metric_key in timeline_df["Metric Key"].unique()
+        if metric_key in METRIC_DEFINITIONS
+    }
+    percent_only = metric_kinds == {"percent"}
 
     line_chart = px.line(
         timeline_df,
-        x=x_axis,
+        x="Match Order",
         y="Value",
         color="Player",
+        line_dash="Metric",
+        symbol="Metric",
         markers=True,
-        hover_data={"File": True, "Value": ":.1f", "Match Date": True},
+        hover_name="Series",
+        custom_data=["Axis Label", "Match Label", "Match Date", "File"],
         color_discrete_sequence=["#18a66c", "#d6ff3d", "#00c2ff", "#ff6f61"],
+        line_dash_sequence=["solid", "dot", "dash", "longdash", "dashdot"],
+        symbol_sequence=["circle", "diamond", "square", "x", "triangle-up", "pentagon"],
     )
-    definition = METRIC_DEFINITIONS.get(timeline_metric)
-    is_percent = definition is not None and definition.kind == "percent"
     line_chart.update_layout(
         template="plotly_dark",
         height=380,
-        margin=dict(l=20, r=20, t=20, b=40),
-        yaxis=dict(title=metric_axis_title(timeline_metric), range=[0, 100] if is_percent else None),
-        xaxis=dict(title=None),
+        margin=dict(l=20, r=20, t=72 if annotate_matches else 20, b=70),
+        yaxis=dict(title="Percent" if percent_only else "Metric Value", range=[0, 100] if percent_only else None),
+        xaxis=dict(
+            title=None,
+            tickmode="array",
+            tickvals=match_df["Match Order"].tolist(),
+            ticktext=match_df["Axis Label"].tolist(),
+            tickangle=-35,
+        ),
         legend_title_text="",
     )
-    if is_percent:
-        line_chart.update_traces(hovertemplate="%{fullData.name}<br>%{x}<br>%{y:.1f}%<extra></extra>")
-    st.caption(metric_help(timeline_metric) or "")
-    if use_dates and timeline_df["File"].nunique() < len(selected_files):
-        st.caption("Undated files are omitted from the timeline chart.")
+    if percent_only:
+        line_chart.update_traces(
+            hovertemplate="<b>%{hovertext}</b><br>%{customdata[0]}<br>%{customdata[1]}<br>Date: %{customdata[2]}<br>File: %{customdata[3]}<br>%{y:.1f}%<extra></extra>"
+        )
+    else:
+        line_chart.update_traces(
+            hovertemplate="<b>%{hovertext}</b><br>%{customdata[0]}<br>%{customdata[1]}<br>Date: %{customdata[2]}<br>File: %{customdata[3]}<br>%{y:.1f}<extra></extra>"
+        )
+
+    if annotate_matches:
+        annotation_rows = match_df.tail(10) if len(match_df) > 10 else match_df
+        if len(match_df) > 10:
+            st.caption("Match annotations are limited to the latest 10 selected files to keep the chart readable.")
+        for row in annotation_rows.to_dict("records"):
+            line_chart.add_vline(
+                x=row["Match Order"],
+                line_dash="dot",
+                line_width=1,
+                line_color="rgba(214, 224, 220, 0.18)",
+            )
+            line_chart.add_annotation(
+                x=row["Match Order"],
+                y=1.05,
+                yref="paper",
+                text=row["Match Label"],
+                showarrow=False,
+                textangle=-28,
+                font=dict(size=10, color="#d6e0dc"),
+                bgcolor="rgba(11, 18, 16, 0.82)",
+                bordercolor="rgba(214, 224, 220, 0.16)",
+                borderpad=4,
+            )
+
+    metric_descriptions = [
+        f"{metric_label(metric_key)}: {metric_help(metric_key)}"
+        for metric_key in timeline_metrics
+        if metric_help(metric_key)
+    ]
+    if metric_descriptions:
+        st.caption(" | ".join(metric_descriptions))
     st.plotly_chart(line_chart, width="stretch")
 
 

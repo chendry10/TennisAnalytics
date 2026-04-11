@@ -1,12 +1,16 @@
 # CourtSide Analytics
 
-CourtSide Analytics is a Streamlit dashboard and CLI for analyzing SwingVision exports. It summarizes serve performance, return performance, and rally-length outcomes from a single match or a folder of matches.
+CourtSide Analytics is a Streamlit dashboard and CLI for analyzing SwingVision exports. It summarizes serve performance, return performance, plus-one transitions, double-fault pressure, and rally-length outcomes from a single match or a folder of matches.
 
 ## Highlights
 - Streamlit dashboard for single-file review or multi-match folder analysis.
+- Timeline mode for overlaying multiple metrics across a sequence of matches with match annotations.
 - Player filtering with both single-player and compare modes.
+- Serve +1 and return +1 metrics for tracking the first ball after the return or serve +1 exchange.
+- Double-fault counts and rate so second-serve risk shows up next to serve win rates.
 - Date-based filtering when filenames include a `YYYY-MM-DD` match date.
 - CSV and Excel export for filtered summaries.
+- Disk-backed caching for repeated workbook analysis during dashboard sessions.
 - CLI workflow for scripting or batch use.
 - Flexible input handling for SwingVision workbooks, raw shots data, and common column aliases.
 
@@ -24,12 +28,14 @@ Typical dashboard flow:
 2. Upload a SwingVision export in `.xlsx`, `.xls`, `.xlsm`, or `.csv` format.
 3. Select one player or compare multiple players.
 4. Optionally filter matches by date and include or exclude individual files.
-5. Download the filtered summary as CSV or Excel.
+5. In folder mode, switch between `Summary` and `Timeline` to review aggregate stats or match-by-match overlays.
+6. Download the filtered summary as CSV or Excel.
 
 ## What The App Handles
 - If an Excel workbook contains `Stats` and `Settings`, the app uses those sheets for fast summary generation.
-- If `Shots` data is available, the app augments the summary with return and rally-length metrics.
+- If `Shots` data is available, the app builds a point-level fact table and augments the summary with return, rally-length, double-fault, and plus-one metrics.
 - If aggregate sheets are missing, the app falls back to raw shot-by-shot analysis.
+- Per-file summaries are cached on disk under `.cache/courtside-analytics` so repeated uploads do not require the same workbook to be parsed again.
 - If column names differ slightly, the loader attempts to map common aliases automatically.
 
 ## CLI Usage
@@ -95,6 +101,8 @@ Key files:
 - `app.py`: Streamlit dashboard
 - `cli.py`: command-line entry point
 - `core/analysis.py`: parsing, normalization, and summary logic
+- `core/metrics.py`: metric labels, descriptions, and aggregation metadata
+- `core/disk_cache.py`: persistent file-summary cache
 - `launcher.py`: packaged app bootstrapper
 - `tests/test_analysis.py`: analysis coverage
 
