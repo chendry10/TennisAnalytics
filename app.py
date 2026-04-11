@@ -28,7 +28,6 @@ from core.analysis import (
 from core.disk_cache import load_cache_entry, save_cache_entry
 from core.errors import DataLoadError, DataValidationError
 from core.metrics import (
-    KEY_METRIC_KEYS,
     METRIC_DEFINITIONS,
     POINT_LENGTH_BUCKETS,
     RETURN_TABLE_KEYS,
@@ -627,20 +626,6 @@ with st.sidebar:
     else:
         output_type = "csv"
 
-
-
-def render_metric_cards(row: pd.Series, metric_keys: list[str], columns_per_row: int = 3) -> None:
-    existing_keys = [key for key in metric_keys if key in row.index]
-    for offset in range(0, len(existing_keys), columns_per_row):
-        keys = existing_keys[offset: offset + columns_per_row]
-        columns = st.columns(columns_per_row)
-        for idx, metric_key in enumerate(keys):
-            columns[idx].metric(
-                metric_label(metric_key),
-                metric_format_pattern(metric_key).format(float(row.get(metric_key, 0))),
-            )
-
-
 def render_metric_dataframe(summary: pd.DataFrame, metric_keys: list[str]) -> None:
     keys = [key for key in metric_keys if key in summary.columns]
     if not keys:
@@ -746,30 +731,6 @@ def render_player_group_chart(
         title=title,
     )
     st.plotly_chart(chart, width="stretch")
-
-
-def render_metrics(summary: pd.DataFrame) -> None:
-    st.subheader("Key Metrics")
-    if summary.empty:
-        st.info("No player data available for the current selection.")
-        return
-
-    if len(summary.index) == 1:
-        player = summary.index[0]
-        row = summary.loc[player]
-        st.caption(f"Focused view: {player}")
-        render_metric_cards(row, KEY_METRIC_KEYS, columns_per_row=3)
-        return
-
-    keys = [key for key in KEY_METRIC_KEYS if key in summary.columns]
-    compact = summary.reindex(columns=keys).sort_values(by="First Serve Win %", ascending=False)
-    compact.columns = [metric_label(key) for key in keys]
-    styled = compact.style.format(
-        {metric_label(key): metric_format_pattern(key) for key in keys}
-    )
-    st.dataframe(styled, width="stretch")
-
-
 def render_table(summary: pd.DataFrame) -> None:
     st.subheader("Serve Summary")
     render_metric_dataframe(summary, SERVE_TABLE_KEYS)
@@ -1211,18 +1172,17 @@ if files_to_process:
 
         filtered_summary = combined_summary.loc[players_after_file_filter]
 
-        render_metrics(filtered_summary)
-        render_table(filtered_summary)
-        render_charts(filtered_summary)
-
         if len(selected_files) > 1:
-            st.markdown("---")
             render_timeline_view(
                 selected_files=selected_files,
                 summaries_by_file=summaries_by_file,
                 selected_players=players_after_file_filter,
                 parsed_dates_by_file=parsed_dates_by_file,
             )
+            st.markdown("---")
+
+        render_table(filtered_summary)
+        render_charts(filtered_summary)
 
         download_data, filename = export_summary_bytes(filtered_summary, output_type)
         st.download_button(
