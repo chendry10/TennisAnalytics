@@ -28,6 +28,18 @@ dist/
 
 # Environment variables
 .env
+.env.*
+
+# Local app secrets
+.streamlit/secrets.toml
+
+# Local analytics data and spreadsheet exports
+Data Files/*
+!Data Files/.gitkeep
+*.xlsx
+*.xls
+*.xlsm
+~$*.xlsx
 
 # IDE/OS
 .vscode/
