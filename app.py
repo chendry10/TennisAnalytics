@@ -1140,57 +1140,13 @@ if files_to_process:
                 st.error("No files could be analyzed. Please check your data files.")
                 st.stop()
 
-            full_summary = summaries[0] if len(summaries) == 1 else aggregate_season_summaries(summaries)
-            full_summary = normalize_summary_players(full_summary)
+        # --- Date filter (applied to ALL files before player selection) ---
+        all_file_names = sorted(summaries_by_file.keys())
+        parsed_dates_by_file = {file_name: parse_match_date_from_filename(file_name) for file_name in all_file_names}
+        dated_files = [file_name for file_name in all_file_names if parsed_dates_by_file[file_name] is not None]
+        undated_files = [file_name for file_name in all_file_names if parsed_dates_by_file[file_name] is None]
 
-        available_players = sorted(map(str, full_summary.index.tolist()))
-        if len(available_players) == 1:
-            selected_players = [available_players[0]]
-        else:
-            view_mode = st.radio(
-                "View mode",
-                ["Focused player", "Compare players"],
-                index=0,
-                horizontal=True,
-            )
-
-            if view_mode == "Focused player":
-                selected_player = st.selectbox(
-                    "Select player",
-                    options=available_players,
-                    index=0,
-                )
-                selected_players = [selected_player]
-            else:
-                default_compare = available_players[: min(4, len(available_players))]
-                selected_players = st.multiselect(
-                    "Select players to compare",
-                    options=available_players,
-                    default=default_compare,
-                    help="Choose only the players you want to compare.",
-                )
-
-                if not selected_players:
-                    st.warning("Please select at least one player to view stats.")
-                    st.stop()
-
-        eligible_files = sorted(
-            [
-                file_name
-                for file_name, file_summary in summaries_by_file.items()
-                if any(player in file_summary.index for player in selected_players)
-            ]
-        )
-
-        if not eligible_files:
-            st.warning("No files found for the selected player(s).")
-            st.stop()
-
-        parsed_dates_by_file = {file_name: parse_match_date_from_filename(file_name) for file_name in eligible_files}
-        dated_files = [file_name for file_name in eligible_files if parsed_dates_by_file[file_name] is not None]
-        undated_files = [file_name for file_name in eligible_files if parsed_dates_by_file[file_name] is None]
-
-        files_after_date_filter = list(eligible_files)
+        files_after_date_filter = list(all_file_names)
         if dated_files:
             date_mode = st.radio(
                 "Date filter",
@@ -1238,7 +1194,7 @@ if files_to_process:
             )
 
             st.caption(
-                f"Date filter keeps {len(files_after_date_filter)} of {len(eligible_files)} file(s)."
+                f"Date filter keeps {len(files_after_date_filter)} of {len(all_file_names)} file(s)."
             )
         else:
             st.caption("No dates detected in filenames, so all eligible files are included.")
@@ -1247,34 +1203,87 @@ if files_to_process:
             st.warning("No files match the selected date window.")
             st.stop()
 
+        # --- Derive available players from date-filtered files ---
+        date_filtered_summaries = [summaries_by_file[file_name] for file_name in files_after_date_filter]
+        date_filtered_summary = (
+            date_filtered_summaries[0]
+            if len(date_filtered_summaries) == 1
+            else aggregate_season_summaries(date_filtered_summaries)
+        )
+        date_filtered_summary = normalize_summary_players(date_filtered_summary)
+        available_players = sorted(map(str, date_filtered_summary.index.tolist()))
+
+        # --- Player selection ---
+        if len(available_players) == 1:
+            selected_players = [available_players[0]]
+        else:
+            view_mode = st.radio(
+                "View mode",
+                ["Focused player", "Compare players"],
+                index=0,
+                horizontal=True,
+            )
+
+            if view_mode == "Focused player":
+                selected_player = st.selectbox(
+                    "Select player",
+                    options=available_players,
+                    index=0,
+                )
+                selected_players = [selected_player]
+            else:
+                default_compare = available_players
+                selected_players = st.multiselect(
+                    "Select players to compare",
+                    options=available_players,
+                    default=default_compare,
+                    help="Choose only the players you want to compare.",
+                )
+
+                if not selected_players:
+                    st.warning("Please select at least one player to view stats.")
+                    st.stop()
+
+        # --- Filter date-filtered files to those containing selected players ---
+        eligible_files = sorted(
+            file_name
+            for file_name in files_after_date_filter
+            if any(player in summaries_by_file[file_name].index for player in selected_players)
+        )
+
+        if not eligible_files:
+            st.warning("No files found for the selected player(s).")
+            st.stop()
+
+        # --- File selection ---
         selection_key = "selected_files_for_players"
         prev_options_key = "selected_files_options"
         if (
             selection_key not in st.session_state
             or prev_options_key not in st.session_state
-            or st.session_state[prev_options_key] != files_after_date_filter
+            or st.session_state[prev_options_key] != eligible_files
         ):
-            st.session_state[selection_key] = files_after_date_filter
-            st.session_state[prev_options_key] = files_after_date_filter
+            st.session_state[selection_key] = eligible_files
+            st.session_state[prev_options_key] = eligible_files
 
         st.caption("Include or exclude files for the selected player(s).")
         action_col1, action_col2 = st.columns(2)
         if action_col1.button("Select all files"):
-            st.session_state[selection_key] = files_after_date_filter
+            st.session_state[selection_key] = eligible_files
         if action_col2.button("Clear all files"):
             st.session_state[selection_key] = []
 
         st.session_state[selection_key] = [
             file_name
-            for file_name in st.session_state.get(selection_key, files_after_date_filter)
-            if file_name in files_after_date_filter
+            for file_name in st.session_state.get(selection_key, eligible_files)
+            if file_name in eligible_files
         ]
 
-        display_labels = build_date_display_labels(files_after_date_filter)
+        display_labels = build_date_display_labels(eligible_files)
 
         selected_files = st.multiselect(
             "Included files",
-            options=files_after_date_filter,
+            options=eligible_files,
             key=selection_key,
             format_func=lambda file_name: display_labels.get(file_name, file_name),
             help="All files are selected by default. Deselect any match you want to leave out.",
@@ -1293,6 +1302,9 @@ if files_to_process:
         combined_summary = normalize_summary_players(combined_summary)
 
         players_after_file_filter = [player for player in selected_players if player in combined_summary.index]
+        dropped_players = [player for player in selected_players if player not in combined_summary.index]
+        if dropped_players:
+            st.info(f"No data for {', '.join(dropped_players)} in the selected files.")
         if not players_after_file_filter:
             st.warning("Selected file set does not contain the selected player(s).")
             st.stop()
