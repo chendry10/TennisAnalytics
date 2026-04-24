@@ -136,7 +136,7 @@ html, body, [class*="css"] {
 }
 
 .block-container {
-    padding-top: 2rem;
+    padding-top: 1.5rem;
     padding-bottom: 2rem;
 }
 
@@ -144,22 +144,70 @@ html, body, [class*="css"] {
     background: linear-gradient(120deg, #0f3d2e 0%, #0b1210 70%);
     border: 1px solid rgba(255,255,255,0.06);
     border-radius: 8px;
-    padding: 28px 32px;
-    margin-bottom: 1.5rem;
+    padding: 22px 30px;
+    margin-bottom: 1.25rem;
     box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+}
+
+.hero.compact {
+    padding: 16px 24px;
+    margin-bottom: 1rem;
 }
 
 .hero h1 {
     color: var(--accent);
-    margin-bottom: 0.4rem;
+    margin: 0;
     font-size: 2.35rem;
+}
+
+.hero.compact h1 {
+    font-size: 2rem;
 }
 
 .hero p {
     color: var(--muted);
-    margin: 0;
+    margin: 0.45rem 0 0;
     font-size: 1.12rem;
     font-weight: 500;
+}
+
+.upload-panel,
+.results-strip {
+    background: #0f1715;
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 8px;
+    padding: 18px 20px;
+    margin-bottom: 1rem;
+}
+
+.upload-panel h3,
+.results-strip h3 {
+    margin: 0 0 0.35rem;
+    color: var(--accent) !important;
+    font-size: 1.05rem !important;
+}
+
+.upload-panel p,
+.upload-panel li,
+.results-strip p {
+    color: var(--muted) !important;
+    margin: 0;
+}
+
+.upload-panel ul {
+    margin: 0.7rem 0 0;
+    padding-left: 1.1rem;
+}
+
+.mobile-upload-hint {
+    display: none;
+    margin-top: 0.85rem !important;
+    color: #ffffff !important;
+    font-weight: 700;
+}
+
+.results-strip p {
+    font-size: 0.98rem;
 }
 
 .metric-card {
@@ -183,10 +231,11 @@ div[data-testid="stMetricLabel"] {
 }
 
 .stDownloadButton>button {
-    background-color: #0f1715 !important;
-    color: var(--ink) !important;
-    border: 1px solid rgba(255,255,255,0.18) !important;
+    background-color: var(--court-bright) !important;
+    color: #08100d !important;
+    border: 1px solid rgba(214,255,61,0.28) !important;
     border-radius: 8px !important;
+    font-weight: 700 !important;
 }
 
 .stMetricValue,
@@ -208,6 +257,8 @@ div[data-testid="stMetricValue"] {
     background: var(--card) !important;
     border: 1px solid rgba(255,255,255,0.10) !important;
     border-radius: 8px !important;
+    min-height: 44px !important;
+    padding: 6px 8px !important;
 }
 
 [data-testid="stFileUploaderFile"] *,
@@ -237,12 +288,18 @@ div[data-testid="stMetricValue"] {
 .stFileUploader p,
 .stFileUploader span {
     color: var(--ink) !important;
-    font-size: 1rem !important;
+    font-size: 0.94rem !important;
 }
 
 section[data-testid="stSidebar"] {
     background-color: #0f1715;
     border-right: 1px solid rgba(255,255,255,0.06);
+    min-width: 340px !important;
+    width: 340px !important;
+}
+
+section[data-testid="stSidebar"] > div {
+    width: 340px !important;
 }
 
 section[data-testid="stSidebar"],
@@ -270,6 +327,55 @@ section[data-testid="stSidebar"] .stFileUploader label {
     color: var(--ink) !important;
     border-color: rgba(255,255,255,0.12) !important;
     font-size: 1.02rem !important;
+}
+
+.stMultiSelect [data-baseweb="tag"] {
+    background-color: rgba(24, 166, 108, 0.22) !important;
+    border: 1px solid rgba(214, 255, 61, 0.34) !important;
+    color: #f5fbf8 !important;
+}
+
+.stMultiSelect [data-baseweb="tag"] span,
+.stMultiSelect [data-baseweb="tag"] svg,
+.stMultiSelect [data-baseweb="tag"] path {
+    color: #f5fbf8 !important;
+    fill: #f5fbf8 !important;
+}
+
+input[type="radio"],
+input[type="checkbox"] {
+    accent-color: var(--court-bright) !important;
+}
+
+label[data-baseweb="radio"] > div:first-child {
+    background-color: #f5fbf8 !important;
+    border-color: #f5fbf8 !important;
+}
+
+label[data-baseweb="radio"]:has(input:checked) > div:first-child {
+    background-color: var(--court-bright) !important;
+    border-color: var(--court-bright) !important;
+}
+
+label[data-baseweb="radio"]:has(input:checked) > div:first-child > div {
+    background-color: #08100d !important;
+}
+
+label[data-baseweb="checkbox"]:has(input:checked) > span:first-child,
+.stCheckbox label:has(input:checked) > span:first-child {
+    background-color: var(--court-bright) !important;
+    border-color: var(--court-bright) !important;
+    color: #08100d !important;
+}
+
+label[data-baseweb="checkbox"]:has(input:checked) svg,
+label[data-baseweb="checkbox"]:has(input:checked) path {
+    fill: #08100d !important;
+    stroke: #08100d !important;
+}
+
+.stButton button {
+    white-space: nowrap !important;
 }
 
 div[role="listbox"],
@@ -383,20 +489,35 @@ div[data-baseweb="modal"] * {
     color: initial !important;
     fill: initial !important;
 }
+
+@media (max-width: 640px) {
+    .block-container {
+        padding-top: 1rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .hero {
+        padding: 18px 18px;
+    }
+
+    .hero h1 {
+        font-size: 2rem;
+        line-height: 1.15;
+    }
+
+    .hero p {
+        font-size: 1rem;
+    }
+
+    .mobile-upload-hint {
+        display: block;
+    }
+}
 </style>
 """
 
 st.markdown(CSS, unsafe_allow_html=True)
-
-st.markdown(
-    """
-    <div class="hero">
-        <h1>CourtSide Analytics</h1>
-        <p>Upload one file or a full folder to instantly view serve performance, win rates, and consistency.</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
 
 SUPPORTED_EXTENSIONS = (".xlsx", ".xls", ".xlsm", ".csv")
 EXCEL_EXTENSIONS = (".xlsx", ".xls", ".xlsm")
@@ -427,17 +548,45 @@ def metric_axis_title(metric_key: str) -> str:
     return "Count"
 
 
-def chart_theme_layout(title: str, yaxis: dict, xaxis: dict, height: int = 340) -> dict:
+def padded_y_range(values: pd.Series, is_percent: bool) -> list[float]:
+    """Return a y-axis range with enough headroom for outside bar labels."""
+    numeric_values = pd.to_numeric(values, errors="coerce").dropna()
+    max_value = float(numeric_values.max()) if not numeric_values.empty else 0.0
+    if is_percent:
+        return [0, max(105.0, min(115.0, max_value * 1.10))]
+    if max_value <= 0:
+        return [0, 1]
+    return [0, max_value * 1.16]
+
+
+def chart_theme_layout(
+    title: str,
+    yaxis: dict,
+    xaxis: dict,
+    height: int = 340,
+    show_legend: bool = True,
+    legend_below: bool = False,
+) -> dict:
+    legend = dict(font=dict(color="#f5fbf8"))
+    if legend_below:
+        legend.update(
+            orientation="h",
+            yanchor="top",
+            y=-0.22,
+            xanchor="left",
+            x=0,
+        )
     return {
         "template": "plotly_dark",
         "height": height,
-        "margin": dict(l=20, r=20, t=44, b=44),
+        "margin": dict(l=20, r=20, t=58, b=86 if legend_below else 44),
         "paper_bgcolor": "#0f1715",
         "plot_bgcolor": "#0f1715",
         "font": dict(color="#f5fbf8"),
         "title": dict(text=title, font=dict(color="#f5fbf8", size=17)),
         "legend_title_text": "",
-        "legend": dict(font=dict(color="#f5fbf8")),
+        "showlegend": show_legend,
+        "legend": legend,
         "xaxis": {
             **xaxis,
             "color": "#dce8e4",
@@ -451,6 +600,42 @@ def chart_theme_layout(title: str, yaxis: dict, xaxis: dict, height: int = 340) 
             "zerolinecolor": "rgba(220,232,228,0.18)",
         },
     }
+
+
+def render_hero(compact: bool) -> None:
+    class_name = "hero compact" if compact else "hero"
+    supporting_copy = (
+        ""
+        if compact
+        else "<p>Upload one file or a full folder to instantly view serve performance, win rates, and consistency.</p>"
+    )
+    st.markdown(
+        f"""
+        <div class="{class_name}">
+            <h1>CourtSide Analytics</h1>
+            {supporting_copy}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_empty_upload_panel() -> None:
+    st.markdown(
+        """
+        <div class="upload-panel">
+            <h3>What to upload</h3>
+            <p>Use a SwingVision match export with a Shots sheet, or an export that includes Stats and Settings sheets.</p>
+            <ul>
+                <li>Accepted formats: XLSX, XLS, XLSM, CSV.</li>
+                <li>Expected shot columns: Player, Shot, Type, Result, Point.</li>
+                <li>Folder uploads can include multiple match exports; unsupported files are skipped.</li>
+            </ul>
+            <p class="mobile-upload-hint">On mobile, open the sidebar with the arrow in the top-left to upload files.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def build_analysis_cache_key(file_bytes: bytes, sheet_for_file: str | int | None) -> str:
@@ -708,12 +893,15 @@ with st.sidebar:
     else:
         output_type = "csv"
 
+render_hero(compact=bool(files_to_process))
+
 def render_grouped_bar_chart(
     summary: pd.DataFrame,
     metric_keys: list[str],
     title: str,
     color_sequence: list[str],
     container=None,
+    legend_below: bool = False,
 ) -> None:
     keys = [key for key in metric_keys if key in summary.columns]
     if not keys:
@@ -742,12 +930,15 @@ def render_grouped_bar_chart(
     chart.update_traces(
         texttemplate="%{text:.1f}%" if is_percent else "%{text:.0f}",
         textposition="outside",
+        cliponaxis=False,
     )
+    y_range = padded_y_range(long_df["Value"], is_percent)
     chart.update_layout(
         **chart_theme_layout(
             title=title,
-            yaxis=dict(title="Percentage" if is_percent else "Count", range=[0, 100] if is_percent else None),
+            yaxis=dict(title="Percentage" if is_percent else "Count", range=y_range),
             xaxis=dict(title=None),
+            legend_below=legend_below,
         )
     )
     target = container if container is not None else st
@@ -760,6 +951,8 @@ def render_player_group_chart(
     title: str,
     category_order: list[str] | None = None,
     container=None,
+    show_legend: bool = True,
+    legend_below: bool = False,
 ) -> None:
     keys = [key for key in metric_keys if key in summary.columns]
     if not keys:
@@ -781,7 +974,7 @@ def render_player_group_chart(
         text="Value",
         color_discrete_sequence=["#18a66c", "#d6ff3d", "#00c2ff", "#ff6f61"],
     )
-    chart.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+    chart.update_traces(texttemplate="%{text:.1f}%", textposition="outside", cliponaxis=False)
     xaxis = dict(title=None)
     if category_order:
         xaxis["categoryorder"] = "array"
@@ -789,8 +982,10 @@ def render_player_group_chart(
     chart.update_layout(
         **chart_theme_layout(
             title=title,
-            yaxis=dict(range=[0, 100], title="Percentage"),
+            yaxis=dict(range=padded_y_range(long_df["Value"], True), title="Percentage"),
             xaxis=xaxis,
+            show_legend=show_legend,
+            legend_below=legend_below,
         )
     )
     target = container if container is not None else st
@@ -798,6 +993,7 @@ def render_player_group_chart(
 
 
 def render_charts(summary: pd.DataFrame) -> None:
+    single_player = len(summary.index) == 1
     rally_keys = [f"{bucket.replace(' ', '_').replace('+', 'plus')}_Win%" for bucket in POINT_LENGTH_BUCKETS]
     chart_specs = [
         {
@@ -906,6 +1102,7 @@ def render_charts(summary: pd.DataFrame) -> None:
                     title=spec["title"],
                     color_sequence=spec["color_sequence"],
                     container=columns[idx],
+                    legend_below=single_player,
                 )
             else:
                 render_player_group_chart(
@@ -914,6 +1111,8 @@ def render_charts(summary: pd.DataFrame) -> None:
                     title=spec["title"],
                     category_order=spec.get("category_order"),
                     container=columns[idx],
+                    show_legend=not single_player,
+                    legend_below=False,
                 )
 
 
@@ -1263,10 +1462,10 @@ if files_to_process:
             st.session_state[prev_options_key] = eligible_files
 
         st.caption("Include or exclude files for the selected player(s).")
-        action_col1, action_col2 = st.columns(2)
-        if action_col1.button("Select all files"):
+        action_col1, action_col2, _ = st.columns([1.1, 1.1, 4.8])
+        if action_col1.button("Select all"):
             st.session_state[selection_key] = eligible_files
-        if action_col2.button("Clear all files"):
+        if action_col2.button("Clear all"):
             st.session_state[selection_key] = []
 
         st.session_state[selection_key] = [
@@ -1306,6 +1505,26 @@ if files_to_process:
             st.stop()
 
         filtered_summary = combined_summary.loc[players_after_file_filter]
+        download_data, filename = export_summary_bytes(filtered_summary, output_type)
+
+        status_col, download_col = st.columns([4, 1])
+        status_col.markdown(
+            f"""
+            <div class="results-strip">
+                <h3>Analysis ready</h3>
+                <p>Analyzed {len(selected_files)} of {len(all_file_names)} valid file(s) for {len(players_after_file_filter)} player(s).</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        download_col.download_button(
+            label=f"Download {output_type.upper()}",
+            data=download_data,
+            file_name=filename,
+            mime="text/csv" if output_type == "csv" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_summary_top",
+            use_container_width=True,
+        )
 
         if len(selected_files) > 1:
             render_timeline_view(
@@ -1318,16 +1537,16 @@ if files_to_process:
 
         render_charts(filtered_summary)
 
-        download_data, filename = export_summary_bytes(filtered_summary, output_type)
         st.download_button(
             label="Download Summary",
             data=download_data,
             file_name=filename,
             mime="text/csv" if output_type == "csv" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_summary_bottom",
         )
 
     except (DataLoadError, DataValidationError) as exc:
         st.error(str(exc))
         st.info("Tip: Confirm the file is a SwingVision export and the columns map correctly.")
 else:
-    st.info("Upload one SwingVision file or a folder of files to get started.")
+    render_empty_upload_panel()
