@@ -217,6 +217,42 @@ class TestAnalysis(unittest.TestCase):
         self.assertEqual(season.loc["Bob", "First Serve Attempts"], 10)
         self.assertEqual(season.loc["Cara", "Second Serve Attempts"], 9)
 
+    def test_aggregate_return_win_percentages_use_attempts(self) -> None:
+        match_one = pd.DataFrame(
+            {
+                "First Return Attempts": [4],
+                "First Return In": [2],
+                "First Return Wins": [1],
+                "First Return Win %": [25.0],
+                "Second Return Attempts": [2],
+                "Second Return In": [1],
+                "Second Return Wins": [1],
+                "Second Return Win %": [50.0],
+            },
+            index=["Alice"],
+        )
+        match_one.index.name = "Player"
+
+        match_two = pd.DataFrame(
+            {
+                "First Return Attempts": [6],
+                "First Return In": [3],
+                "First Return Wins": [2],
+                "First Return Win %": [33.33],
+                "Second Return Attempts": [3],
+                "Second Return In": [1],
+                "Second Return Wins": [0],
+                "Second Return Win %": [0.0],
+            },
+            index=["Alice"],
+        )
+        match_two.index.name = "Player"
+
+        season = aggregate_season_summaries([match_one, match_two])
+
+        self.assertAlmostEqual(season.loc["Alice", "First Return Win %"], 30.0)
+        self.assertAlmostEqual(season.loc["Alice", "Second Return Win %"], 20.0)
+
     def test_normalize_summary_players_collapses_generic_opponent_labels(self) -> None:
         summary = pd.DataFrame(
             {
@@ -428,6 +464,23 @@ class TestAnalysis(unittest.TestCase):
         df = df.dropna(subset=["Point"])
         summary = summarize_all(df)
         self.assertIn("A", summary.index)
+
+    def test_validate_and_rename_normalizes_type_and_result_values(self) -> None:
+        df = pd.DataFrame(
+            [
+                {"Player": "A", "Shot": 1, "Type": "First Serve", "Result": "in", "Point": "1"},
+                {"Player": "B", "Shot": 2, "Type": "1st Return", "Result": "OUT", "Point": "1"},
+                {"Player": "A", "Shot": 3, "Type": "Serve +1", "Result": "Net", "Point": "1"},
+            ]
+        )
+
+        normalized = validate_and_rename(df)
+
+        self.assertEqual(normalized.loc[0, "Type"], "first_serve")
+        self.assertEqual(normalized.loc[1, "Type"], "first_return")
+        self.assertEqual(normalized.loc[2, "Type"], "serve_plus_one")
+        self.assertEqual(normalized.loc[0, "Result"], "In")
+        self.assertEqual(normalized.loc[1, "Result"], "Out")
 
     def test_single_player_only(self) -> None:
         """Data with only one player should not cause index errors in pivots."""

@@ -192,7 +192,7 @@ METRIC_DEFINITIONS = {
         chart_group="return",
         timeline=True,
         numerator="First Return Wins",
-        denominator="First Return In",
+        denominator="First Return Attempts",
     ),
     "Second Return Win %": MetricDefinition(
         key="Second Return Win %",
@@ -202,7 +202,7 @@ METRIC_DEFINITIONS = {
         chart_group="return",
         timeline=True,
         numerator="Second Return Wins",
-        denominator="Second Return In",
+        denominator="Second Return Attempts",
     ),
     "Serve +1 Attempts": MetricDefinition(
         key="Serve +1 Attempts",

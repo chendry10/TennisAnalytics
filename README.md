@@ -18,6 +18,7 @@ CourtSide Analytics is a Streamlit dashboard and CLI for analyzing SwingVision e
 Install dependencies and launch the app:
 
 ```bash
+python --version  # Python 3.11 or 3.12 recommended
 pip install -r requirements.txt
 python -m streamlit run app.py
 ```
@@ -35,7 +36,7 @@ Typical dashboard flow:
 - If an Excel workbook contains `Stats` and `Settings`, the app uses those sheets for fast summary generation.
 - If `Shots` data is available, the app builds a point-level fact table and augments the summary with return, rally-length, double-fault, and plus-one metrics.
 - If aggregate sheets are missing, the app falls back to raw shot-by-shot analysis.
-- Per-file summaries are cached on disk under `.cache/courtside-analytics` so repeated uploads do not require the same workbook to be parsed again.
+- Per-file summaries are cached outside the repo by default so repeated uploads do not require the same workbook to be parsed again. Set `COURTSIDE_ANALYTICS_CACHE_DIR` to choose a cache location, and `COURTSIDE_ANALYTICS_CACHE_MAX_AGE_DAYS` to control cleanup.
 - If column names differ slightly, the loader attempts to map common aliases automatically.
 
 ## CLI Usage
@@ -90,6 +91,8 @@ pyinstaller CourtSideAnalytics.spec
 The built executable will be created at `dist\CourtSideAnalytics.exe`.
 
 ## Development
+This app is tested on Python 3.11 and uses bounded dependency ranges in [requirements.txt](requirements.txt) for reproducible deployments.
+
 Run the test suite:
 
 ```bash

@@ -1,7 +1,6 @@
 import hashlib
 import io
 import logging
-import json
 import re
 from datetime import date, timedelta
 from pathlib import Path
@@ -92,7 +91,7 @@ html, body, [class*="css"] {
 
 [data-testid="stToolbarActions"] img,
 [data-testid="stToolbarActions"] svg {
-    filter: brightness(0) invert(1) !important;
+    filter: none !important;
 }
 
 [data-testid="stToolbarActions"] button,
@@ -144,7 +143,7 @@ html, body, [class*="css"] {
 .hero {
     background: linear-gradient(120deg, #0f3d2e 0%, #0b1210 70%);
     border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 18px;
+    border-radius: 8px;
     padding: 28px 32px;
     margin-bottom: 1.5rem;
     box-shadow: 0 12px 30px rgba(0,0,0,0.35);
@@ -166,7 +165,7 @@ html, body, [class*="css"] {
 .metric-card {
     background: var(--card);
     border: 1px solid rgba(255,255,255,0.07);
-    border-radius: 14px;
+    border-radius: 8px;
     padding: 14px 18px;
 }
 
@@ -179,7 +178,7 @@ div[data-testid="stMetricLabel"] {
 .stButton>button {
     background-color: var(--court-bright) !important;
     color: #08100d !important;
-    border-radius: 12px !important;
+    border-radius: 8px !important;
     font-weight: 600 !important;
 }
 
@@ -187,7 +186,7 @@ div[data-testid="stMetricLabel"] {
     background-color: #0f1715 !important;
     color: var(--ink) !important;
     border: 1px solid rgba(255,255,255,0.18) !important;
-    border-radius: 12px !important;
+    border-radius: 8px !important;
 }
 
 .stMetricValue,
@@ -208,7 +207,7 @@ div[data-testid="stMetricValue"] {
 [data-testid="stFileUploaderFile"] {
     background: var(--card) !important;
     border: 1px solid rgba(255,255,255,0.10) !important;
-    border-radius: 12px !important;
+    border-radius: 8px !important;
 }
 
 [data-testid="stFileUploaderFile"] *,
@@ -401,7 +400,7 @@ st.markdown(
 
 SUPPORTED_EXTENSIONS = (".xlsx", ".xls", ".xlsm", ".csv")
 EXCEL_EXTENSIONS = (".xlsx", ".xls", ".xlsm")
-ANALYSIS_CACHE_VERSION = "2026-04-10-point-facts-v2"
+ANALYSIS_CACHE_VERSION = "2026-04-24-production-v3"
 
 
 def metric_label(metric_key: str) -> str:
@@ -426,6 +425,32 @@ def metric_axis_title(metric_key: str) -> str:
     if definition and definition.kind == "percent":
         return "Percentage"
     return "Count"
+
+
+def chart_theme_layout(title: str, yaxis: dict, xaxis: dict, height: int = 340) -> dict:
+    return {
+        "template": "plotly_dark",
+        "height": height,
+        "margin": dict(l=20, r=20, t=44, b=44),
+        "paper_bgcolor": "#0f1715",
+        "plot_bgcolor": "#0f1715",
+        "font": dict(color="#f5fbf8"),
+        "title": dict(text=title, font=dict(color="#f5fbf8", size=17)),
+        "legend_title_text": "",
+        "legend": dict(font=dict(color="#f5fbf8")),
+        "xaxis": {
+            **xaxis,
+            "color": "#dce8e4",
+            "gridcolor": "rgba(220,232,228,0.12)",
+            "zerolinecolor": "rgba(220,232,228,0.18)",
+        },
+        "yaxis": {
+            **yaxis,
+            "color": "#dce8e4",
+            "gridcolor": "rgba(220,232,228,0.12)",
+            "zerolinecolor": "rgba(220,232,228,0.18)",
+        },
+    }
 
 
 def build_analysis_cache_key(file_bytes: bytes, sheet_for_file: str | int | None) -> str:
@@ -547,62 +572,6 @@ def build_date_display_labels(file_names: list[str]) -> dict[str, str]:
     return display_labels
 
 
-def inject_filename_labels(files: list) -> None:
-    """Inject JS that replaces native uploader filenames with date labels."""
-    if not files:
-        return
-    import streamlit.components.v1 as components
-
-    display_labels = build_date_display_labels([f.name for f in files])
-    mapping = json.dumps(display_labels)
-    js = f"""
-<script>
-(function() {{
-    var mapping = {mapping};
-    function replaceLabels() {{
-        var doc = parent.document;
-        if (!doc) return;
-        var items = doc.querySelectorAll('[data-testid="stFileUploaderFile"]');
-        items.forEach(function(item) {{
-            if (item.getAttribute('data-replaced')) return;
-            var nameEl = item.querySelector('.stFileUploaderFileName');
-            if (!nameEl) return;
-            var txt = nameEl.textContent.trim();
-            if (!txt) return;
-            // Exact match first
-            if (mapping.hasOwnProperty(txt)) {{
-                nameEl.textContent = mapping[txt];
-                nameEl.title = txt;
-                nameEl.style.overflow = 'visible';
-                nameEl.style.textOverflow = 'clip';
-                nameEl.style.whiteSpace = 'normal';
-                item.setAttribute('data-replaced', '1');
-            }}
-            // Hide file size
-            var parent2 = nameEl.parentElement;
-            if (parent2) {{
-                var children = parent2.children;
-                for (var c = 0; c < children.length; c++) {{
-                    if (children[c] !== nameEl && /^\\d/.test(children[c].textContent.trim())) {{
-                        children[c].style.display = 'none';
-                    }}
-                }}
-            }}
-        }});
-    }}
-    replaceLabels();
-    var observer = new MutationObserver(function() {{ replaceLabels(); }});
-    if (parent.document.body) {{
-        observer.observe(parent.document.body, {{childList: true, subtree: true}});
-    }}
-    setTimeout(replaceLabels, 300);
-    setTimeout(replaceLabels, 800);
-    setTimeout(replaceLabels, 1500);
-}})();
-</script>
-"""
-    components.html(js, height=0, width=0)
-
 files_to_process = []
 sheet_names_by_file = {}
 default_sheet_by_file = {}
@@ -625,6 +594,7 @@ with st.sidebar:
     else:
         uploaded = st.file_uploader(
             "Drag & Drop Folder with SwingVision Files Here",
+            type=["xlsx", "xls", "xlsm", "csv"],
             accept_multiple_files="directory",
         )
         files_to_process = uploaded if uploaded else []
@@ -636,6 +606,8 @@ with st.sidebar:
         is_excel_any = False
         seen_hashes = set()
         invalid_excel_files = []
+        unsupported_files = []
+        duplicate_files = []
         skipped_temp_files = 0
         skipped_metadata_files = 0
         validated_files = []
@@ -651,20 +623,17 @@ with st.sidebar:
                 skipped_metadata_files += 1
                 continue
 
+            lower_name = file_name.lower()
+            if not lower_name.endswith(SUPPORTED_EXTENSIONS):
+                unsupported_files.append(file_name)
+                continue
+
             file_bytes = file.getvalue()
             file_hash = hashlib.sha256(file_bytes).hexdigest()
             if file_hash in seen_hashes:
-                st.error("Duplicate file detected. Please remove duplicates and try again.")
-                st.stop()
+                duplicate_files.append(file_name)
+                continue
             seen_hashes.add(file_hash)
-
-            lower_name = file_name.lower()
-            if not lower_name.endswith(SUPPORTED_EXTENSIONS):
-                st.error(
-                    f"Unsupported file type: {file_name}. "
-                    "Only .xlsx/.xls/.xlsm/.csv files are allowed."
-                )
-                st.stop()
 
             is_excel = lower_name.endswith(EXCEL_EXTENSIONS)
             is_excel_any = is_excel_any or is_excel
@@ -677,8 +646,8 @@ with st.sidebar:
                     continue
 
                 if not sheet_names_by_file[file_name]:
-                    st.error(f"No readable sheets found in {file_name}.")
-                    st.stop()
+                    invalid_excel_files.append(file_name)
+                    continue
                 default_sheet_by_file[file_name] = preferred_sheet_index(sheet_names_by_file[file_name])
 
             validated_files.append(file)
@@ -688,24 +657,38 @@ with st.sidebar:
         if skipped_metadata_files:
             logger.info("Skipped %d metadata/system file(s)", skipped_metadata_files)
 
+        if duplicate_files:
+            st.warning(
+                f"Skipped {len(duplicate_files)} duplicate file(s). "
+                "Only one copy of each matching file is analyzed."
+            )
+
+        if unsupported_files:
+            preview = ", ".join(unsupported_files[:5])
+            more = "" if len(unsupported_files) <= 5 else f", and {len(unsupported_files) - 5} more"
+            st.warning(
+                f"Skipped {len(unsupported_files)} unsupported file(s): {preview}{more}. "
+                "Supported formats are XLSX, XLS, XLSM, and CSV."
+            )
+
         if invalid_excel_files:
             preview = "\n".join(f"- {name}" for name in invalid_excel_files[:10])
             more = ""
             if len(invalid_excel_files) > 10:
                 more = f"\n- ...and {len(invalid_excel_files) - 10} more"
-            st.error(
-                "Some uploaded Excel files are not valid and were blocked. "
-                "Please remove or re-export these files:\n"
+            st.warning(
+                "Skipped Excel files that could not be read. "
+                "Please re-export these files if you need them included:\n"
                 f"{preview}{more}"
             )
-            st.stop()
 
         files_to_process = validated_files
         if not files_to_process:
             st.error("No valid files found to analyze. Please upload at least one valid SwingVision file.")
             st.stop()
 
-        inject_filename_labels(files_to_process)
+        if len(files_to_process) > 1:
+            st.caption(f"Ready to analyze {len(files_to_process)} valid files.")
 
         if is_excel_any:
             example_file = files_to_process[0]
@@ -716,8 +699,12 @@ with st.sidebar:
 
     st.markdown("---")
     if files_to_process:
-        output_type = "xlsx"
-        st.caption(f"Download format: {output_type.upper()}")
+        output_type = st.radio(
+            "Download format",
+            ["xlsx", "csv"],
+            horizontal=True,
+            format_func=str.upper,
+        )
     else:
         output_type = "csv"
 
@@ -757,13 +744,11 @@ def render_grouped_bar_chart(
         textposition="outside",
     )
     chart.update_layout(
-        template="plotly_dark",
-        height=340,
-        margin=dict(l=20, r=20, t=40, b=40),
-        yaxis=dict(title="Percentage" if is_percent else "Count", range=[0, 100] if is_percent else None),
-        xaxis=dict(title=None),
-        legend_title_text="",
-        title=title,
+        **chart_theme_layout(
+            title=title,
+            yaxis=dict(title="Percentage" if is_percent else "Count", range=[0, 100] if is_percent else None),
+            xaxis=dict(title=None),
+        )
     )
     target = container if container is not None else st
     target.plotly_chart(chart, width="stretch")
@@ -802,13 +787,11 @@ def render_player_group_chart(
         xaxis["categoryorder"] = "array"
         xaxis["categoryarray"] = category_order
     chart.update_layout(
-        template="plotly_dark",
-        height=340,
-        margin=dict(l=20, r=20, t=40, b=40),
-        yaxis=dict(range=[0, 100], title="Percentage"),
-        xaxis=xaxis,
-        legend_title_text="",
-        title=title,
+        **chart_theme_layout(
+            title=title,
+            yaxis=dict(range=[0, 100], title="Percentage"),
+            xaxis=xaxis,
+        )
     )
     target = container if container is not None else st
     target.plotly_chart(chart, width="stretch")
@@ -1054,15 +1037,28 @@ def render_timeline_view(
         template="plotly_dark",
         height=380,
         margin=dict(l=20, r=20, t=72 if annotate_matches else 20, b=70),
-        yaxis=dict(title="Percent" if percent_only else "Metric Value", range=[0, 100] if percent_only else None),
+        paper_bgcolor="#0f1715",
+        plot_bgcolor="#0f1715",
+        font=dict(color="#f5fbf8"),
+        yaxis=dict(
+            title="Percent" if percent_only else "Metric Value",
+            range=[0, 100] if percent_only else None,
+            color="#dce8e4",
+            gridcolor="rgba(220,232,228,0.12)",
+            zerolinecolor="rgba(220,232,228,0.18)",
+        ),
         xaxis=dict(
             title=None,
             tickmode="array",
             tickvals=match_df["Match Order"].tolist(),
             ticktext=match_df["Axis Label"].tolist(),
             tickangle=-35,
+            color="#dce8e4",
+            gridcolor="rgba(220,232,228,0.12)",
+            zerolinecolor="rgba(220,232,228,0.18)",
         ),
         legend_title_text="",
+        legend=dict(font=dict(color="#f5fbf8")),
     )
     if percent_only:
         line_chart.update_traces(

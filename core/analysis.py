@@ -58,6 +58,51 @@ GENERIC_OPPONENT_LABELS = {
     "na",
 }
 
+TYPE_ALIASES = {
+    "1stserve": "first_serve",
+    "firstserve": "first_serve",
+    "firstserv": "first_serve",
+    "2ndserve": "second_serve",
+    "secondserve": "second_serve",
+    "secondserv": "second_serve",
+    "1streturn": "first_return",
+    "firstreturn": "first_return",
+    "2ndreturn": "second_return",
+    "secondreturn": "second_return",
+    "serveplusone": "serve_plus_one",
+    "serve1": "serve_plus_one",
+    "serveplus1": "serve_plus_one",
+    "returnplusone": "return_plus_one",
+    "return1": "return_plus_one",
+    "returnplus1": "return_plus_one",
+    "inplay": "in_play",
+}
+
+RESULT_ALIASES = {
+    "in": "In",
+    "out": "Out",
+    "net": "Net",
+}
+
+
+def _compact_token(value: object) -> str:
+    return "".join(ch for ch in str(value).strip().lower() if ch.isalnum())
+
+
+def normalize_type_value(value: object) -> str:
+    """Normalize common shot type spellings into the internal tokens."""
+    raw = str(value).strip()
+    normalized = raw.lower().replace("-", " ").replace("/", " ")
+    normalized = "_".join(normalized.split())
+    compact = _compact_token(raw)
+    return TYPE_ALIASES.get(compact, normalized)
+
+
+def normalize_result_value(value: object) -> str:
+    """Normalize common result spellings while preserving unknown values."""
+    raw = str(value).strip()
+    return RESULT_ALIASES.get(raw.lower(), raw)
+
 
 def canonicalize_player_label(name: object) -> str:
     """Normalize generic opponent placeholders to a single canonical label."""
@@ -263,8 +308,8 @@ def validate_and_rename(df: pd.DataFrame, column_map: Optional[Dict[str, str]] =
         df = df.rename(columns={v: k for k, v in auto_map.items()})
 
     df = df[REQUIRED_COLUMNS].copy()
-    df["Result"] = df["Result"].astype(str).str.strip()
-    df["Type"] = df["Type"].astype(str).str.strip()
+    df["Result"] = df["Result"].map(normalize_result_value)
+    df["Type"] = df["Type"].map(normalize_type_value)
     df["Player"] = df["Player"].astype(str).str.strip()
     return df
 
